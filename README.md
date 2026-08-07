@@ -1,5 +1,7 @@
 # md2word
 
+***English** · [Deutsch](README.de.md)*
+
 A command-line tool that converts Markdown files into Microsoft Word documents
 (`.docx`) — no Word installation, no Pandoc, pure Python.
 
@@ -17,6 +19,7 @@ editable through the document's styles.
 - [Usage](#usage)
 - [Options](#options)
 - [YAML front matter](#yaml-front-matter)
+- [Formulas](#formulas)
 - [Building a standalone executable (PyInstaller)](#building-a-standalone-executable-pyinstaller)
 - [Limitations](#limitations)
 - [Development](#development)
@@ -354,6 +357,58 @@ there. Anything given explicitly on the command line wins over the front matter.
 
 ---
 
+## Formulas
+
+Markdown has no notation of its own for mathematics, so md2word follows the
+convention GitHub, Jupyter, Obsidian and Pandoc share: LaTeX between dollar
+signs.
+
+```markdown
+Inline: $E = mc^2$ in the middle of a sentence.
+
+$$
+\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+$$
+```
+
+Inline formulas become an equation inside the paragraph, `$$…$$` a centred one
+on its own line. Both are **real Word equations** — click one and the equation
+editor opens.
+
+**Only what stands between the delimiters is read as LaTeX.** A `\frac{a}{b}`
+in running text without dollar signs stays literal text; this is a notation for
+formulas, not LaTeX support for the whole document.
+
+**A dollar sign is not a delimiter unless it hugs its content.** The opening
+`$` must be followed directly by the formula and the closing one preceded
+directly by it — the same rule MathJax applies. That keeps amounts of money out
+of the equation editor:
+
+| Input | Result |
+|:------|:-------|
+| `$E = mc^2$` | equation |
+| `$x$` | equation |
+| `It costs $100 and the rest $50.` | plain text — no space-crossing match |
+| `Price $19.99` | plain text |
+| `\$100` | plain text, escaped |
+| `$ x $` | plain text — the delimiters do not hug |
+
+Write `\$` whenever a literal dollar sign might be mistaken for a delimiter.
+
+**Not every formula can be translated.** The converter covers fractions, roots,
+sub- and superscripts, sums and integrals with limits, delimiters, accents,
+limits, matrices, function names and Greek letters. Anything beyond that — own
+macros, `\begin{align}` with alignment points, chemistry packages — stays
+readable as formatted text, and md2word names the formula in a note:
+
+```
+Note: formula kept as text - LaTeX did not parse: \myMacro{x}
+```
+
+`--math text` turns equations off entirely and renders every formula that way.
+
+---
+
 ## Building a standalone executable (PyInstaller)
 
 Yes, this works — and it is tested. It lets md2word run on machines without a
@@ -443,7 +498,7 @@ notarising it with an Apple developer account (`codesign --deep --sign
 
 ### What matters in `md2word.spec`
 
-Three pitfalls are already solved there — worth knowing if you adapt the spec:
+Four pitfalls are already solved there — worth knowing if you adapt the spec:
 
 1. **python-docx's base Word template** lives as a package file under
    `docx/templates/` and is picked up with `collect_data_files`. Without it,
@@ -453,7 +508,9 @@ Three pitfalls are already solved there — worth knowing if you adapt the spec:
    normally no file in `docx/parts/`, so the directory does not exist — and then
    the `..` cannot be resolved. Without the placeholder, the built program dies
    the moment a header, footer, page number or comment comes into play.
-3. **Pygments** resolves lexers and colour schemes at runtime through name
+3. **latex2mathml's `unimathsymbols.txt`**, a 216 KB table read at runtime.
+   Without it, no formula converts.
+4. **Pygments** resolves lexers and colour schemes at runtime through name
    tables. They have to be registered as hidden imports via
    `collect_submodules`, otherwise there is no syntax highlighting at all.
 

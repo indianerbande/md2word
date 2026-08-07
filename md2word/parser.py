@@ -88,7 +88,10 @@ def build_markdown(lang: str = "en", allow_html: bool = True) -> MarkdownIt:
         .use(footnote_plugin)
         .use(deflist_plugin)
         .use(tasklists_plugin, enabled=True, label=True)
-        .use(dollarmath_plugin, allow_space=True, double_inline=True)
+        # allow_space=False on purpose: with spaces allowed, "costs $100 and
+        # $50" reads as one formula spanning both amounts. Requiring the
+        # delimiters to hug their content is also what MathJax does.
+        .use(dollarmath_plugin, allow_space=False, double_inline=True)
     )
 
     if not allow_html:

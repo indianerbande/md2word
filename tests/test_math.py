@@ -199,6 +199,48 @@ def test_formula_in_a_heading(convert, assert_valid):
     assert len(math_elements(path, "oMath")) == 1
 
 
+# ----------------------------------------------------------------------
+# Telling formulas from ordinary dollar signs
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "source",
+    [
+        "It costs $100 and the rest $50.",
+        "Cost: $100. Later: $200.",
+        "Between $5 and $10 per unit.",
+        "Price $19.99 only",
+        r"Escaped \$100 and \$200",
+        "Spaced $ x $ delimiters",
+    ],
+)
+def test_currency_amounts_are_not_formulas(convert, source):
+    """Two amounts in one paragraph used to be welded into a single formula."""
+    path, _ = convert(source)
+    assert not math_elements(path, "oMath"), f"{source!r} should stay text"
+
+
+@pytest.mark.parametrize(
+    "source, count",
+    [
+        ("Formula $E = mc^2$ here", 1),
+        ("Variable $x$ in the text", 1),
+        ("$a$ plus $b$", 2),
+        ("$$x^2$$", 1),
+    ],
+)
+def test_real_formulas_still_recognised(convert, source, count):
+    path, _ = convert(source)
+    assert len(math_elements(path, "oMath")) == count
+
+
+def test_amount_and_formula_side_by_side(convert, doc):
+    """A price and an equation in one sentence must not interfere."""
+    path, _ = convert("The $100 fee follows $x = 2y$ exactly.")
+    assert len(math_elements(path, "oMath")) == 1
+    document = doc("The $100 fee follows $x = 2y$ exactly.")
+    assert "$100 fee" in document.paragraphs[0].text
+
+
 def test_document_with_maths_is_deterministic(tmp_path):
     from md2word.config import Config
     from md2word.converter import convert_text
