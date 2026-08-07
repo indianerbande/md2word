@@ -9,7 +9,7 @@ description = "Command-line tool that converts Markdown into Microsoft Word (.do
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "Jürgen Reitböck", email = "indianerbande@users.noreply.github.com" }]
+authors = [{ name = "Jürgen Reitböck", email = "md2word@indianerbande.de" }]
 keywords = ["markdown", "docx", "word", "converter", "cli", "ooxml"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
