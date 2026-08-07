@@ -11,8 +11,8 @@ Two build modes:
   pyinstaller md2word.spec --noconfirm -- --onefile        # a single file
 
 The helper script is more convenient:
-  python make_exe.py            # directory build
-  python make_exe.py --onefile  # single file
+  python3 make_exe.py            # directory build
+  python3 make_exe.py --onefile  # single file
 """
 
 import os

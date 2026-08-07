@@ -60,6 +60,11 @@ Dokumenteigenschaften aus dem Front Matter.
 Vorausgesetzt wird **Python 3.9 oder neuer**. Getestet mit 3.9.6 und 3.14.6
 unter macOS; der Code selbst ist plattformunabhängig.
 
+> Die Befehle unten verwenden `python3` und `pip3` – so heißen sie unter macOS
+> und in den meisten Linux-Distributionen, ein blankes `python` gibt es dort
+> nicht. Unter Windows heißen beide `python` und `pip`. In einer aktivierten
+> virtuellen Umgebung funktioniert jede der beiden Schreibweisen.
+
 ### Variante A – als Python-Paket (empfohlen)
 
 Am saubersten in einer virtuellen Umgebung, damit die Abhängigkeiten nicht mit
@@ -78,7 +83,7 @@ Unter Windows lautet die zweite Zeile `.venv\Scripts\activate`.
 Dann das Paket installieren:
 
 ```bash
-pip install .
+pip3 install .
 ```
 
 Danach steht der Befehl `md2word` zur Verfügung:
@@ -94,11 +99,11 @@ muss dann **aus dem Projektverzeichnis** heraus erfolgen, weil `md2word` selbst
 nicht installiert wird:
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ```bash
-python -m md2word datei.md
+python3 -m md2word datei.md
 ```
 
 ### Variante C – systemweit mit pipx
@@ -120,7 +125,7 @@ SVG-Grafiken benötigen ein zusätzliches Paket, weil Word das Format nicht
 einbetten kann und es vorher in PNG umgewandelt werden muss:
 
 ```bash
-pip install ".[svg]"
+pip3 install ".[svg]"
 ```
 
 `cairosvg` setzt die Systembibliothek Cairo voraus – unter macOS
@@ -425,11 +430,11 @@ Python-Installation.
 ### Bauen
 
 ```bash
-pip install ".[build]"
+pip3 install ".[build]"
 ```
 
 ```bash
-python make_exe.py
+python3 make_exe.py
 ```
 
 Das Skript prüft die Abhängigkeiten, ruft PyInstaller mit `md2word.spec` auf und
@@ -441,11 +446,11 @@ Bau als erfolgreich.
 ### Die zwei Bauarten
 
 ```bash
-python make_exe.py            # ein Verzeichnis (Voreinstellung)
+python3 make_exe.py            # ein Verzeichnis (Voreinstellung)
 ```
 
 ```bash
-python make_exe.py --onefile  # eine einzelne Datei
+python3 make_exe.py --onefile  # eine einzelne Datei
 ```
 
 Gemessen auf einem Mac mit Apple Silicon, jeder Wert eine vollständige
@@ -553,7 +558,7 @@ kennen:
 ## Entwicklung
 
 ```bash
-pip install -e ".[dev]"
+pip3 install -e ".[dev]"
 ```
 
 ```bash

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Builds md2word into a standalone executable (PyInstaller).
 
-  python make_exe.py              # directory build, starts fast
-  python make_exe.py --onefile    # a single file, convenient to hand around
-  python make_exe.py --clean      # remove intermediate output first
+  python3 make_exe.py              # directory build, starts fast
+  python3 make_exe.py --onefile    # a single file, convenient to hand around
+  python3 make_exe.py --clean      # remove intermediate output first
 
 PyInstaller cannot cross-build: the Windows .exe has to be produced on
 Windows, the macOS executable on macOS, the Linux one on Linux.

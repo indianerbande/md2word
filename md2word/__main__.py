@@ -1,4 +1,4 @@
-"""Erlaubt den Aufruf via ``python -m md2word``."""
+"""Lets the package be invoked as ``python3 -m md2word``."""
 
 from md2word.cli import main
 

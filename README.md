@@ -60,6 +60,11 @@ front matter.
 Requires **Python 3.9 or newer**. Tested on 3.9.6 and 3.14.6 under macOS; the
 code itself is platform-independent.
 
+> The commands below use `python3` and `pip3`, which is what macOS and most
+> Linux distributions provide — there is no bare `python` there. On Windows
+> both are called `python` and `pip`. Inside an activated virtual environment
+> either spelling works.
+
 ### Option A — as a Python package (recommended)
 
 Cleanest inside a virtual environment, so the dependencies stay out of your
@@ -78,7 +83,7 @@ On Windows the second line is `.venv\Scripts\activate`.
 Then install the package:
 
 ```bash
-pip install .
+pip3 install .
 ```
 
 The `md2word` command is now available:
@@ -93,11 +98,11 @@ Install only the dependencies and call the package as a module. You then have to
 run it **from the project directory**, since `md2word` itself is not installed:
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ```bash
-python -m md2word file.md
+python3 -m md2word file.md
 ```
 
 ### Option C — system-wide with pipx
@@ -120,7 +125,7 @@ SVG graphics need one additional package, because Word cannot embed the format
 and it has to be converted to PNG first:
 
 ```bash
-pip install ".[svg]"
+pip3 install ".[svg]"
 ```
 
 `cairosvg` depends on the Cairo system library — `brew install cairo` on macOS,
@@ -417,11 +422,11 @@ Python installation.
 ### Building
 
 ```bash
-pip install ".[build]"
+pip3 install ".[build]"
 ```
 
 ```bash
-python make_exe.py
+python3 make_exe.py
 ```
 
 The script checks the dependencies, runs PyInstaller against `md2word.spec`, and
@@ -433,11 +438,11 @@ successful.
 ### The two build modes
 
 ```bash
-python make_exe.py            # one directory (the default)
+python3 make_exe.py            # one directory (the default)
 ```
 
 ```bash
-python make_exe.py --onefile  # a single file
+python3 make_exe.py --onefile  # a single file
 ```
 
 Measured on an Apple Silicon Mac, each figure being one full conversion of the
@@ -542,7 +547,7 @@ Four pitfalls are already solved there — worth knowing if you adapt the spec:
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip3 install -e ".[dev]"
 ```
 
 ```bash
