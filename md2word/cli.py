@@ -148,6 +148,13 @@ def build_parser() -> argparse.ArgumentParser:
         "as a fallback, or nothing",
     )
     content.add_argument(
+        "--math",
+        dest="math_mode",
+        choices=("omml", "text"),
+        default="omml",
+        help="Render formulas as real Word equations, or as formatted text",
+    )
+    content.add_argument(
         "--footnotes",
         dest="footnote_mode",
         choices=("footnotes", "endnotes"),
@@ -218,6 +225,7 @@ def config_from_args(args: argparse.Namespace, explicit: set[str]) -> Config:
         "download_images": not args.no_remote_images,
         "strip_html": args.strip_html,
         "captions": args.captions,
+        "math_mode": args.math_mode,
         "footnote_mode": args.footnote_mode,
         "lang": args.lang,
         "verbose": args.verbose,

@@ -115,6 +115,7 @@ class Config:
     image_timeout: float = 10.0
     captions: str = "title"  # title | alt | none
     strip_html: bool = False
+    math_mode: str = "omml"  # omml | text
     footnote_mode: str = "footnotes"  # footnotes | endnotes
     lang: str = "en-US"
 

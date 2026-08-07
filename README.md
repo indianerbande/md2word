@@ -41,7 +41,7 @@ editable through the document's styles.
 | `text[^1]` | A **real Word footnote** at the bottom of the page (not just superscript text) |
 | `Term\n: Definition` | Definition list |
 | `---` | Horizontal rule |
-| `$a^2$`, `$$…$$` | Formulas as italic Cambria Math text (see [Limitations](#limitations)) |
+| `$a^2$`, `$$…$$` | **Real Word equations** (OMML), inline and as centred display blocks |
 | `<b>HTML</b>` | Raw HTML is carried through (disable with `--strip-html`) |
 | `<!-- pagebreak -->` | Hard page break |
 
@@ -276,6 +276,7 @@ The four themes: `default` (Calibri, blue), `classic` (Times New Roman, black),
 | `--max-image-width MM` | text width | Upper bound for image widths |
 | `--captions {title,alt,none}` | `title` | What image captions are made from |
 | `--footnotes {footnotes,endnotes}` | `footnotes` | Real footnotes, or notes collected at the end |
+| `--math {omml,text}` | `omml` | Formulas as real Word equations, or as formatted text |
 | `--strip-html` | off | Ignore raw HTML instead of carrying it through |
 | `--lang CODE` | `en-US` | Document language; drives quotation marks and built-in headings |
 
@@ -460,9 +461,13 @@ Three pitfalls are already solved there — worth knowing if you adapt the spec:
 
 ## Limitations
 
-- **Formulas** are carried over as italic Cambria Math text, not as an editable
-  Word equation (OMML). For typeset mathematics, Pandoc with `--to docx` is the
-  better choice. md2word says so during conversion.
+- **Formulas** become real Word equations, editable in the equation editor. The
+  translator covers the common ground — fractions, roots, sub- and
+  superscripts, sums and integrals with limits, delimiters, accents, matrices,
+  function names and Greek letters. Exotic LaTeX (custom macros, `\begin{align}`
+  with alignment points, chemistry packages) is not understood; such a formula
+  stays readable as formatted text and md2word says which one it was. Use
+  `--math text` to switch equations off entirely.
 - **SVG** cannot be embedded by Word directly. With the optional `cairosvg`
   package md2word converts SVG to PNG automatically; without it, the image is
   skipped.
@@ -487,7 +492,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The suite covers 219 tests across five files:
+The suite covers 252 tests across six files:
 
 | File | Covers |
 |:-----|:-------|
@@ -496,6 +501,7 @@ The suite covers 219 tests across five files:
 | `tests/test_document.py` | Front matter, title page, TOC, headers/footers, themes, reference documents |
 | `tests/test_edge_cases.py` | Empty input, malformed markup, deep nesting, special characters |
 | `tests/test_i18n.py` | Language fallbacks and the document strings that follow `--lang` |
+| `tests/test_math.py` | LaTeX → OMML for every supported construct, plus the text fallback |
 
 Every test that produces a complete file runs it through `assert_valid`. That
 check, in `tests/conftest.py`, walks the resulting OPC package: well-formedness
@@ -518,6 +524,7 @@ anchors that actually point at a bookmark.
 | `md2word/images.py` | Resolving and embedding image sources |
 | `md2word/highlight.py` | Syntax highlighting via Pygments |
 | `md2word/i18n.py` | The few strings that go *into* the document, per language |
+| `md2word/omml.py` | LaTeX → MathML → Word equations |
 
 Routing through HTML is deliberate: nested structures — lists inside lists,
 quotes containing code blocks, tables with inline markup — transfer far more

@@ -80,7 +80,7 @@ md2word demo.md --toc --page-numbers
 | Headings     |    yes    | H1 through H6                   |
 | Tables       |    yes    | including per-column alignment  |
 | Footnotes    |    yes    | real Word footnotes             |
-| Formulas     |  partial  | as formatted text               |
+| Formulas     |    yes    | real Word equations (OMML)      |
 
 ## Definition lists
 

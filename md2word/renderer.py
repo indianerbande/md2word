@@ -17,6 +17,7 @@ from docx.text.paragraph import Paragraph
 from md2word import docxutil as dx
 from md2word import i18n
 from md2word import images as img
+from md2word import omml
 from md2word import styles as st
 from md2word.config import Config
 from md2word.highlight import highlight_code
@@ -248,18 +249,32 @@ class DocxRenderer:
         self._block_container(node, state)
 
     def _block_math(self, node: Any, state: RenderState) -> None:
-        formula = _collapse("".join(node.itertext()))
+        formula = "".join(node.itertext()).strip()
         if not formula:
             return
+
         paragraph = self._new_paragraph(state)
+        equation = self._build_equation(formula)
+        if equation is not None:
+            paragraph._p.append(omml.wrap_display(equation))
+            return
+
+        # Fallback: the formula stays readable, just not editable as maths
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = paragraph.add_run(formula)
+        run = paragraph.add_run(_collapse(formula))
         run.italic = True
         dx.set_run_font(run, "Cambria Math")
-        self.warnings.add(
-            "a mathematical expression was carried over as formatted text, "
-            "not as a Word equation"
-        )
+
+    def _build_equation(self, formula: str) -> Any | None:
+        """LaTeX -> OMML element, or None when it has to stay text."""
+        if self.cfg.math_mode != "omml":
+            return None
+        try:
+            return omml.latex_to_omml(formula)
+        except omml.UnsupportedMath as exc:
+            short = formula if len(formula) <= 40 else formula[:37] + "..."
+            self.warnings.add(f"formula kept as text - {exc}: {short}")
+            return None
 
     def _block_paragraph(self, node: Any, state: RenderState) -> None:
         paragraph = self._new_paragraph(state)
@@ -637,11 +652,15 @@ class DocxRenderer:
             return
 
         if tag == "span" and "math" in classes:
-            text = _collapse("".join(node.itertext()))
-            if text:
-                run = paragraph.add_run(text)
-                run.italic = True
-                dx.set_run_font(run, "Cambria Math")
+            formula = "".join(node.itertext()).strip()
+            if formula:
+                equation = self._build_equation(formula)
+                if equation is not None:
+                    paragraph._p.append(equation)
+                else:
+                    run = paragraph.add_run(_collapse(formula))
+                    run.italic = True
+                    dx.set_run_font(run, "Cambria Math")
             if node.tail:
                 self._add_run(paragraph, node.tail, fmt, state)
             return

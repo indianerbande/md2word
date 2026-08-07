@@ -325,17 +325,4 @@ def test_inline_image_stays_in_paragraph(tmp_path, doc):
     assert "after" in paragraph.text
 
 
-# ----------------------------------------------------------------------
-# Formulas
-# ----------------------------------------------------------------------
-def test_inline_math_becomes_text(doc, convert):
-    _path, result = convert("Formula $a^2$ here")
-    assert any("Mathematisch" in msg for msg in result.warnings) or True
-    document = doc("Formula $a^2$ here")
-    assert "a^2" in document.paragraphs[0].text
-
-
-def test_block_math_centered(doc):
-    document = doc("$$\nE = mc^2\n$$")
-    paragraph = find_paragraph(document, "E = mc^2")
-    assert str(paragraph.alignment) == "CENTER (1)"
+# Formulas now become real Word equations; see tests/test_math.py.

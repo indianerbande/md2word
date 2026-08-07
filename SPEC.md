@@ -147,6 +147,7 @@ nothing from the project and can be tested in isolation.
 | `images.py` | Loading image sources, determining dimensions | barely |
 | `highlight.py` | Pygments tokens → coloured fragments | no |
 | `i18n.py` | Document-facing strings, per language | no |
+| `omml.py` | LaTeX → MathML → Word equations | yes |
 
 ---
 
@@ -645,6 +646,63 @@ Dates on the title page use ISO 8601 when none is given. A localised format
 would need a locale database; ISO is unambiguous everywhere and sorts correctly.
 
 
+### 6.11 Formulas as real equations
+
+Word does not store mathematics as text but as **OMML** (Office Math Markup
+Language), a vocabulary of its own in the `m:` namespace that sits directly
+inside `w:p`. Inline formulas are an `m:oMath` element among the runs; display
+formulas are wrapped in `m:oMathPara`, which carries its own justification.
+
+The route is **LaTeX → MathML → OMML**. The first leg is `latex2mathml`; the
+second is `md2word/omml.py`, written out by hand. The obvious alternative would
+have been Microsoft's `MML2OMML.xsl`, but that stylesheet ships with Office,
+is not redistributable, and would tie the converter to a machine that has Word
+installed.
+
+The translation is a recursive walk over the MathML tree with one handler per
+element:
+
+| MathML | OMML | Note |
+|:-------|:-----|:-----|
+| `mi`, `mn`, `mo`, `mtext` | `m:r` + `m:t` | see the italics rule below |
+| `mfrac` | `m:f` (`m:num`, `m:den`) | |
+| `msqrt`, `mroot` | `m:rad` | `m:deg` must exist even when hidden |
+| `msup`, `msub`, `msubsup` | `m:sSup`, `m:sSub`, `m:sSubSup` | unless the base is n-ary |
+| `msubsup`, `munderover` with ∑ ∏ ∫ … | `m:nary` | limits above/below, or beside for integrals |
+| `munder`, `mover` | `m:limLow`, `m:limUpp`, `m:acc` | accent when the character is one |
+| `mtable`, `mtr`, `mtd` | `m:m`, `m:mr`, `m:e` | |
+| `mrow`, `mstyle`, `mpadded` | — | contents pass through |
+
+Four details are less obvious than the table suggests:
+
+**Italics are inverted from HTML.** Word sets maths runs in italics by default,
+which is right for variables and wrong for everything else. Numbers, operators
+and literal text therefore carry `<m:sty m:val="p"/>` for plain. A single-letter
+`mi` is a variable and stays italic; a longer one is a function name like `sin`
+and goes upright.
+
+**Brackets have to be recognised, not just printed.** latex2mathml emits `(a+b)`
+as three siblings, so a naive translation gives fixed-height parentheses beside
+a tall fraction. `_convert_sequence` scans each run of siblings for a matching
+pair — counting depth, so nesting works — and turns it into `m:d`, which makes
+Word grow the brackets to fit. An unmatched bracket stays an ordinary character
+rather than swallowing the rest of the formula.
+
+**Integrals and sums place their limits differently.** `∑` stacks them above and
+below (`limLoc="undOvr"`), `∫` puts them beside the sign (`limLoc="subSup"`).
+Both are what a typesetter expects, and Word will not infer it.
+
+**The n-ary body must not stay empty.** MathML does not record how far the body
+of a sum reaches, so `\sum_{i=1}^{n} i` arrives as an operator followed by a
+separate `i`. Left alone, Word shows an empty placeholder box inside the sum
+sign. `_convert_sequence` therefore moves the next item into the body — which is
+also what someone typing the formula in Word would do.
+
+Anything not covered raises `UnsupportedMath`, and the renderer falls back to
+the previous behaviour: italic Cambria Math text plus a warning naming the
+formula. A plain-looking formula beats a document Word refuses to open.
+
+
 ---
 
 ## 7. Resolving configuration
@@ -754,7 +812,7 @@ route.
 
 ## 10. Validation and test strategy
 
-219 tests across five files, run against Python 3.9 and 3.14.
+252 tests across six files, run against Python 3.9 and 3.14.
 
 The core is `assert_valid` in `tests/conftest.py`. Every test that produces a
 complete file sends it through. What gets checked is the OPC package itself, not
@@ -811,10 +869,10 @@ fine. Quotation marks live separately, in `parser._QUOTES`.
 its target type. Conversion is handled by `_coerce`, which also understands
 `ja`/`nein` for booleans alongside `yes`/`no`.
 
-**Real Word equations (OMML)** would be the largest open item. The route runs
-LaTeX → MathML → OMML via XSLT (Microsoft's `MML2OMML.xsl`) plus a new module
-that inserts the result into the paragraph as `m:oMath`. The hook points are
-`_block_math` and the `math` branch in `_render_inline_node`.
+**A new maths construct** means a handler in `omml._HANDLERS`, keyed by the
+MathML element name. Each handler receives the node and returns a list of OMML
+elements; raising `UnsupportedMath` sends the formula down the text fallback
+instead of producing something Word cannot read.
 
 ---
 
@@ -824,7 +882,7 @@ that inserts the result into the paragraph as `m:oMath`. The hook points are
 |:---------|:-------|:------|
 | Route through HTML instead of the token stream | nesting comes for free, lxml repairs broken markup | one extra serialise-and-parse |
 | python-docx instead of bare lxml | OPC bookkeeping, images, content types handled | half the elements need hand-written XML |
-| Formulas as formatted text | generating OMML would be a sub-project of its own | no editable Word equations |
+| Own MathML → OMML translator | Microsoft's MML2OMML.xsl is not redistributable and needs Office installed | a supported subset, not all of LaTeX |
 | Computing column widths ourselves | Word's automation overruns the text area | a heuristic, not perfect typography |
 | One paragraph per code line | Word cannot represent `<pre>` | borders have to be assembled by hand |
 | Quotes handled in post-processing | depth is only known after rendering | two passes over the same paragraphs |

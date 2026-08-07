@@ -43,6 +43,11 @@ _marker = os.path.join(os.path.dirname(_docx.__file__), "py.typed")
 if os.path.isfile(_marker):
     datas.append((_marker, "docx/parts"))
 
+# latex2mathml looks up every symbol in unimathsymbols.txt at runtime. It is a
+# data file, so the import scanner does not see it, and without it no formula
+# converts in the built program.
+datas += collect_data_files("latex2mathml")
+
 # ----------------------------------------------------------------------
 # Hidden imports
 # ----------------------------------------------------------------------
