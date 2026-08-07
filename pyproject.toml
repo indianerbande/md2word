@@ -9,14 +9,14 @@ description = "Command-line tool that converts Markdown into Microsoft Word (.do
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "Jürgen Reitböck", email = "juergen@reitboeck.at" }]
+authors = [{ name = "Jürgen Reitböck", email = "indianerbande@users.noreply.github.com" }]
 keywords = ["markdown", "docx", "word", "converter", "cli", "ooxml"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
-    "Natural Language :: German",
+    "Natural Language :: English",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
@@ -50,8 +50,10 @@ build = ["pyinstaller>=6.0"]
 md2word = "md2word.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/juergen/md2word#readme"
-Source = "https://github.com/juergen/md2word"
+Homepage = "https://github.com/indianerbande/md2word"
+Documentation = "https://github.com/indianerbande/md2word#readme"
+Source = "https://github.com/indianerbande/md2word"
+Issues = "https://github.com/indianerbande/md2word/issues"
 
 [tool.setuptools]
 packages = ["md2word"]
