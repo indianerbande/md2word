@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 .eggs/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
 
@@ -11,12 +13,38 @@ venv/
 build/
 dist/
 *.manifest
+*.spec.bak
 
 # Output of test runs
 examples/*.docx
 *.docx
 !tests/data/*.docx
 
+# JetBrains (PyCharm, IntelliJ)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+atlassian-ide-plugin.xml
+com_crashlytics_export_strings.xml
+
+# Visual Studio Code
+# Everything under .vscode/ is personal state, except the handful of files a
+# project may deliberately share - drop the exceptions if you want none of it.
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+.vscode-test/
+.history/
+*.vsix
+*.code-workspace
+
 # Operating system
 .DS_Store
+.AppleDouble
 Thumbs.db
+Desktop.ini
