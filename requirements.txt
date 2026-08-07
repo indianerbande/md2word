@@ -1,0 +1,12 @@
+# Laufzeitabhaengigkeiten von md2word
+# Installation:  pip install -r requirements.txt
+
+markdown-it-py>=3.0      # CommonMark-Parser
+mdit-py-plugins>=0.4     # Front Matter, Fussnoten, Definitionslisten, Aufgabenlisten, Formeln
+linkify-it-py>=2.0       # nackte URLs automatisch verlinken
+python-docx>=1.1         # Word-Dokumente schreiben
+lxml>=4.9                # HTML-Baum verarbeiten (bringt python-docx ohnehin mit)
+Pygments>=2.15           # Syntaxhervorhebung in Codebloecken
+PyYAML>=6.0              # YAML-Front-Matter lesen
+requests>=2.28           # Bilder von URLs laden
+Pillow>=9.0              # Bildabmessungen bestimmen

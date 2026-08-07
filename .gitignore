@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.manifest
+
+# Ergebnisse von Testlaeufen
+examples/*.docx
+*.docx
+!tests/data/*.docx
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
