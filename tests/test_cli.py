@@ -1,4 +1,4 @@
-"""Kommandozeile: Argumente, Dateinamen, Stapelverarbeitung, Fehlerfaelle."""
+"""Command line: arguments, file names, batch processing, error cases."""
 
 from __future__ import annotations
 
@@ -18,38 +18,38 @@ def workdir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def write(path, text="# Titel\n\nEin Absatz.\n"):
+def write(path, text="# Title\n\nA paragraph.\n"):
     path.write_text(text, encoding="utf-8")
     return path
 
 
 # ----------------------------------------------------------------------
 def test_default_output_name(workdir, capsys):
-    write(workdir / "bericht.md")
-    assert main(["bericht.md"]) == 0
-    assert (workdir / "bericht.docx").is_file()
+    write(workdir / "report.md")
+    assert main(["report.md"]) == 0
+    assert (workdir / "report.docx").is_file()
 
 
 def test_explicit_output(workdir):
     write(workdir / "a.md")
-    assert main(["a.md", "-o", "ziel.docx"]) == 0
-    assert (workdir / "ziel.docx").is_file()
+    assert main(["a.md", "-o", "target.docx"]) == 0
+    assert (workdir / "target.docx").is_file()
 
 
 def test_output_directory_is_created(workdir):
     write(workdir / "a.md")
-    assert main(["a.md", "-d", "build/unterordner"]) == 0
-    assert (workdir / "build" / "unterordner" / "a.docx").is_file()
+    assert main(["a.md", "-d", "build/subdir"]) == 0
+    assert (workdir / "build" / "subdir" / "a.docx").is_file()
 
 
 def test_batch_conversion(workdir):
-    for name in ("eins.md", "zwei.md", "drei.md"):
+    for name in ("one.md", "two.md", "three.md"):
         write(workdir / name)
-    assert main(["eins.md", "zwei.md", "drei.md", "-d", "out"]) == 0
+    assert main(["one.md", "two.md", "three.md", "-d", "out"]) == 0
     assert sorted(p.name for p in (workdir / "out").iterdir()) == [
-        "drei.docx",
-        "eins.docx",
-        "zwei.docx",
+        "one.docx",
+        "three.docx",
+        "two.docx",
     ]
 
 
@@ -62,37 +62,37 @@ def test_glob_pattern(workdir):
 
 def test_existing_target_is_protected(workdir, capsys):
     write(workdir / "a.md")
-    (workdir / "a.docx").write_text("alt")
+    (workdir / "a.docx").write_text("old")
     assert main(["a.md"]) == 1
-    assert (workdir / "a.docx").read_text() == "alt"
-    assert "existiert bereits" in capsys.readouterr().err
+    assert (workdir / "a.docx").read_text() == "old"
+    assert "already exists" in capsys.readouterr().err
 
 
 def test_force_overwrites(workdir):
     write(workdir / "a.md")
-    (workdir / "a.docx").write_text("alt")
+    (workdir / "a.docx").write_text("old")
     assert main(["a.md", "--force"]) == 0
     assert (workdir / "a.docx").read_bytes()[:2] == b"PK"
 
 
 def test_missing_input_reports_error(workdir, capsys):
-    assert main(["fehlt.md"]) == 1
-    assert "nicht gefunden" in capsys.readouterr().err
+    assert main(["missing.md"]) == 1
+    assert "file not found" in capsys.readouterr().err
 
 
 def test_output_with_multiple_inputs_is_rejected(workdir, capsys):
     write(workdir / "a.md")
     write(workdir / "b.md")
     with pytest.raises(SystemExit) as exc:
-        main(["a.md", "b.md", "-o", "eins.docx"])
+        main(["a.md", "b.md", "-o", "one.docx"])
     assert exc.value.code == 2
 
 
 def test_stdin_input(workdir, monkeypatch):
-    monkeypatch.setattr(sys, "stdin", io.StringIO("# Aus der Pipe\n\nText"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO("# From the pipe\n\nText"))
     assert main(["-", "-o", "pipe.docx"]) == 0
     document = Document(str(workdir / "pipe.docx"))
-    assert any("Aus der Pipe" in p.text for p in document.paragraphs)
+    assert any("From the pipe" in p.text for p in document.paragraphs)
 
 
 def test_quiet_suppresses_status(workdir, capsys):
@@ -125,13 +125,13 @@ def test_list_pygments_styles(capsys):
 
 
 def test_batch_continues_after_failure(workdir, capsys):
-    write(workdir / "gut.md")
-    assert main(["fehlt.md", "gut.md", "-d", "out"]) == 1
-    assert (workdir / "out" / "gut.docx").is_file()
+    write(workdir / "good.md")
+    assert main(["missing.md", "good.md", "-d", "out"]) == 1
+    assert (workdir / "out" / "good.docx").is_file()
 
 
 # ----------------------------------------------------------------------
-# Argumentauswertung
+# Argument handling
 # ----------------------------------------------------------------------
 def test_margin_sets_all_sides(workdir):
     write(workdir / "a.md")
@@ -169,9 +169,9 @@ def test_no_highlight_maps_to_config():
 
 
 def test_cli_metadata_overrides_front_matter(workdir):
-    write(workdir / "a.md", "---\ntitle: Aus dem Front Matter\n---\n\nText")
-    main(["a.md", "--title", "Von der Kommandozeile"])
-    assert Document(str(workdir / "a.docx")).core_properties.title == "Von der Kommandozeile"
+    write(workdir / "a.md", "---\ntitle: From the front matter\n---\n\nText")
+    main(["a.md", "--title", "From the command line"])
+    assert Document(str(workdir / "a.docx")).core_properties.title == "From the command line"
 
 
 def test_pygments_style_derives_code_background():
@@ -181,4 +181,4 @@ def test_pygments_style_derives_code_background():
     argv = ["a.md", "--pygments-style", "monokai"]
     args = parser.parse_args(argv)
     config = config_from_args(args, _explicit_options(argv, parser))
-    assert config.code_bg != "F5F5F5", "dunkles Schema braucht dunklen Hintergrund"
+    assert config.code_bg != "F5F5F5", "a dark scheme needs a dark background"

@@ -1,4 +1,4 @@
-"""Definiert das Aussehen des erzeugten Dokuments (Absatz- und Zeichenformate)."""
+"""Defines how the generated document looks (paragraph and character styles)."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ from docx.shared import Mm, Pt, RGBColor
 from md2word import docxutil as dx
 from md2word.config import Config
 
-# Style-IDs, die der Renderer verwendet.
-# Bewusst identisch zu den Namen aus Pandocs Referenzdokument: so laesst sich
-# ein Pandoc-Template via --reference-doc verwenden, und der Rueckweg
-# (docx -> Markdown) erkennt Code, Zitate und Bildunterschriften wieder.
+# Style IDs the renderer uses.
+# Deliberately identical to the names in Pandoc's reference document: that
+# lets a Pandoc template be used via --reference-doc, and makes the return
+# trip (docx -> Markdown) recognise code, quotes and captions again.
 S_CODE_BLOCK = "SourceCode"
 S_CODE_INLINE = "VerbatimChar"
 S_QUOTE = "Quote"
@@ -31,7 +31,7 @@ S_HYPERLINK = "Hyperlink"
 S_FOOTNOTE_TEXT = "FootnoteText"
 S_FOOTNOTE_REF = "FootnoteReference"
 
-# Schriftgroessen der Ueberschriften als Faktor der Grundschrift
+# Heading sizes as a factor of the base font size
 _HEADING_SCALE = (1.85, 1.45, 1.25, 1.12, 1.03, 1.0)
 _HEADING_SPACE_BEFORE = (18, 16, 13, 11, 9, 9)
 _HEADING_SPACE_AFTER = (8, 7, 6, 5, 4, 4)
@@ -42,10 +42,10 @@ def hex_to_rgb(value: str) -> RGBColor:
 
 
 class StyleLookup:
-    """Zugriff auf Formatvorlagen ueber ihre styleId.
+    """Access to styles by their styleId.
 
-    python-docx unterstuetzt den Zugriff per ID zwar noch, warnt aber davor.
-    Der Cache haelt die Style-Objekte direkt vor.
+    python-docx still supports lookup by ID but warns about it. This cache
+    keeps the style objects to hand instead.
     """
 
     def __init__(self, document: Any) -> None:
@@ -90,7 +90,7 @@ def ensure_style(
     style_type: WD_STYLE_TYPE,
     builtin: bool = False,
 ) -> Any:
-    """Liefert ein Style-Objekt zur gegebenen styleId, legt es bei Bedarf an."""
+    """Returns the style for a given styleId, creating it if necessary."""
     node = _style_element(document, style_id)
     if node is None:
         style = document.styles.add_style(ui_name, style_type, builtin=False)
@@ -118,11 +118,11 @@ def _set_indent(style: Any, left: float = 0.0, right: float = 0.0, first_line: f
 
 # ----------------------------------------------------------------------
 class StyleBuilder:
-    """Legt Formatvorlagen an - und schuetzt die einer Referenzvorlage.
+    """Creates styles - and protects those of a reference template.
 
-    Wird mit ``--reference-doc`` gearbeitet, sollen die dort definierten
-    Formate gewinnen. Dann liefert :meth:`style` fuer bereits vorhandene
-    Vorlagen ``None``, und der Aufrufer laesst sie unveraendert.
+    When ``--reference-doc`` is in play, the styles defined there should
+    win. :meth:`style` then returns ``None`` for styles that already exist,
+    and the caller leaves them untouched.
     """
 
     def __init__(self, document: Any, config: Config, respect_existing: bool) -> None:
@@ -143,7 +143,7 @@ class StyleBuilder:
         return ensure_style(self.doc, style_id, ui_name, style_type, builtin)
 
     def existing_style(self, style_id: str) -> Any:
-        """Vorhandene Vorlage zum Bearbeiten - bei Referenzvorlagen tabu."""
+        """An existing style to edit - off limits with a reference template."""
         if self.respect:
             return None
         for style in self.doc.styles:
@@ -153,7 +153,7 @@ class StyleBuilder:
 
 
 def apply_styles(document: Any, config: Config, respect_existing: bool = False) -> None:
-    """Richtet Seitenlayout und alle Formatvorlagen gemaess Konfiguration ein."""
+    """Sets up the page layout and every style according to the config."""
     builder = StyleBuilder(document, config, respect_existing)
 
     _setup_page(builder)
@@ -172,8 +172,8 @@ def apply_styles(document: Any, config: Config, respect_existing: bool = False) 
 
 def _setup_page(b: StyleBuilder) -> None:
     config = b.cfg
-    # Bei einer Referenzvorlage bleibt deren Seitenlayout stehen, sofern
-    # der Aufruf nichts Gegenteiliges verlangt.
+    # With a reference template its page layout stands, unless the call
+    # explicitly asks for something else.
     explicit = config._explicit
     change_size = not b.respect or {"page_size", "landscape"} & explicit
     margin_fields = {"margin_top", "margin_bottom", "margin_left", "margin_right"}
@@ -243,7 +243,7 @@ def _setup_headings(b: StyleBuilder) -> None:
         fmt.line_spacing = 1.0
         fmt.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
 
-        # Trennlinie nur unter H1/H2 - das gliedert lange Dokumente
+        # A rule under H1/H2 only - it structures long documents
         if level <= 2:
             dx.set_borders(
                 style.element.get_or_add_pPr(),
@@ -307,7 +307,7 @@ def _setup_code(b: StyleBuilder) -> None:
         fmt.keep_together = True
         _set_indent(block, left=3.0, right=2.0)
         dx.set_shading(block.element.get_or_add_pPr(), config.code_bg)
-        # Die Rahmenlinien setzt der Renderer je Codeblock (nur aussen)
+        # The renderer sets the borders per code block (outer edges only)
 
     inline = b.style(S_CODE_INLINE, "Verbatim Char", WD_STYLE_TYPE.CHARACTER)
     if inline is not None:
@@ -387,7 +387,7 @@ def _setup_misc(b: StyleBuilder) -> None:
         body.paragraph_format.space_after = Pt(4)
         _set_indent(body, left=8.0)
 
-    # Text in Tabellenzellen: kompakter als der Fliesstext
+    # Text inside table cells: more compact than body text
     cell = b.style(S_TABLE_TEXT, "Compact", WD_STYLE_TYPE.PARAGRAPH)
     if cell is not None:
         cell.font.size = Pt(max(8.0, config.font_size - 1))
@@ -396,7 +396,7 @@ def _setup_misc(b: StyleBuilder) -> None:
         cell.paragraph_format.line_spacing = 1.0
         cell.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
 
-    # Verfasser-/Datumszeile der Titelseite
+    # Author and date line on the title page
     meta = b.style(S_META, "Author", WD_STYLE_TYPE.PARAGRAPH)
     if meta is not None:
         meta.font.size = Pt(config.font_size)
@@ -431,7 +431,7 @@ def _setup_footnotes(b: StyleBuilder) -> None:
 
 # ----------------------------------------------------------------------
 def build_table_style(document: Any, config: Config) -> str:
-    """Liefert die styleId der zu verwendenden Tabellenvorlage."""
+    """Returns the styleId of the table style to use."""
     available = {style.style_id for style in document.styles}
     return "TableGrid" if "TableGrid" in available else "TableNormal"
 

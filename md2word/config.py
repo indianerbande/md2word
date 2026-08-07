@@ -1,11 +1,11 @@
-"""Konfiguration: Seitenlayout, Typografie und Konvertierungsoptionen."""
+"""Configuration: page layout, typography and conversion options."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-# Seitenformate in Millimetern (Breite x Hoehe, Hochformat)
+# Paper sizes in millimetres (width x height, portrait)
 PAGE_SIZES: dict[str, tuple[float, float]] = {
     "a4": (210.0, 297.0),
     "a5": (148.0, 210.0),
@@ -14,7 +14,7 @@ PAGE_SIZES: dict[str, tuple[float, float]] = {
     "legal": (215.9, 355.6),
 }
 
-# Vordefinierte Farb-/Schriftschemata (Hex ohne '#')
+# Predefined colour and font schemes (hex without the '#')
 THEMES: dict[str, dict[str, Any]] = {
     "default": {
         "body_font": "Calibri",
@@ -67,9 +67,9 @@ DEFAULT_THEME = "default"
 
 @dataclass
 class Config:
-    """Alle Stellschrauben der Konvertierung an einem Ort."""
+    """Every knob of the conversion in one place."""
 
-    # --- Seite -------------------------------------------------------
+    # --- Page ---------------------------------------------------------
     page_size: str = "a4"
     landscape: bool = False
     margin_top: float = 25.0  # mm
@@ -77,7 +77,7 @@ class Config:
     margin_left: float = 25.0
     margin_right: float = 25.0
 
-    # --- Typografie --------------------------------------------------
+    # --- Typography ---------------------------------------------------
     theme: str = DEFAULT_THEME
     body_font: str = ""
     heading_font: str = ""
@@ -87,7 +87,7 @@ class Config:
     line_spacing: float = 1.15
     space_after: float = 8.0  # pt Abstand nach Absaetzen
 
-    # --- Farben (Hex ohne '#') ---------------------------------------
+    # --- Colours (hex without the '#') ---------------------------------
     accent: str = ""
     heading_color: str = ""
     link_color: str = ""
@@ -95,10 +95,11 @@ class Config:
     quote_color: str = ""
     table_header_bg: str = ""
 
-    # --- Struktur ----------------------------------------------------
+    # --- Structure ------------------------------------------------------
     toc: bool = False
     toc_depth: int = 3
-    toc_title: str = "Inhaltsverzeichnis"
+    # Empty = derive from the document language (see i18n.translate)
+    toc_title: str = ""
     title_page: bool = False
     number_headings: bool = False
     page_numbers: bool = False
@@ -106,7 +107,7 @@ class Config:
     footer_text: str = ""
     break_on_h1: bool = False
 
-    # --- Inhalte -----------------------------------------------------
+    # --- Content --------------------------------------------------------
     highlight: bool = True
     pygments_style: str = "friendly"
     max_image_width: float = 0.0  # mm, 0 = Textbreite
@@ -115,9 +116,9 @@ class Config:
     captions: str = "title"  # title | alt | none
     strip_html: bool = False
     footnote_mode: str = "footnotes"  # footnotes | endnotes
-    lang: str = "de-DE"
+    lang: str = "en-US"
 
-    # --- Dokument-Metadaten (koennen aus dem Front Matter kommen) -----
+    # --- Document metadata (may come from the front matter) -------------
     title: str = ""
     subtitle: str = ""
     author: str = ""
@@ -126,15 +127,15 @@ class Config:
     keywords: str = ""
     comments: str = ""
 
-    # --- Sonstiges ---------------------------------------------------
+    # --- Miscellaneous --------------------------------------------------
     reference_doc: str = ""
     base_dir: str = "."
     verbose: bool = False
 
-    # Nicht-Metadaten-Schluessel aus dem Front Matter
+    # Front-matter keys that are not metadata
     _extra: dict[str, Any] = field(default_factory=dict, repr=False)
-    # Felder, die explizit auf der Kommandozeile gesetzt wurden und daher
-    # nicht vom Front Matter ueberschrieben werden duerfen
+    # Fields set explicitly on the command line, which the front matter
+    # is therefore not allowed to override
     _explicit: set = field(default_factory=set, repr=False)
 
     def __post_init__(self) -> None:
@@ -142,7 +143,7 @@ class Config:
 
     # ------------------------------------------------------------------
     def apply_theme(self, name: str) -> None:
-        """Fuellt alle noch leeren Farb-/Schriftfelder aus dem Theme."""
+        """Fills every colour and font field still empty from the theme."""
         palette = THEMES.get(name, THEMES[DEFAULT_THEME])
         for key, value in palette.items():
             if not getattr(self, key, ""):
@@ -150,7 +151,7 @@ class Config:
 
     @property
     def page_dimensions(self) -> tuple[float, float]:
-        """Seitenbreite/-hoehe in mm unter Beruecksichtigung der Ausrichtung."""
+        """Page width and height in mm, honouring the orientation."""
         width, height = PAGE_SIZES.get(self.page_size, PAGE_SIZES["a4"])
         if self.landscape:
             width, height = height, width
@@ -158,11 +159,11 @@ class Config:
 
     @property
     def text_width_mm(self) -> float:
-        """Nutzbare Textbreite in mm."""
+        """Usable text width in mm."""
         width, _ = self.page_dimensions
         return max(10.0, width - self.margin_left - self.margin_right)
 
     def merged_with(self, **overrides: Any) -> "Config":
-        """Kopie mit ueberschriebenen Feldern (leere Werte werden ignoriert)."""
+        """A copy with overridden fields (empty values are ignored)."""
         clean = {k: v for k, v in overrides.items() if v not in ("", None)}
         return replace(self, **clean)

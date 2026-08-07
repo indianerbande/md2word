@@ -1,4 +1,4 @@
-"""Bildquellen aufloesen: lokale Pfade, data:-URIs und entfernte URLs."""
+"""Resolving image sources: local paths, data: URIs and remote URLs."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ USER_AGENT = "md2word/1.0 (+https://pypi.org/project/python-docx/)"
 
 
 class ImageError(RuntimeError):
-    """Ein Bild konnte nicht geladen oder nicht eingebettet werden."""
+    """An image could not be loaded or embedded."""
 
 
 @dataclass
@@ -48,7 +48,7 @@ def _is_remote(src: str) -> bool:
 def _decode_data_uri(src: str) -> bytes:
     match = _DATA_URI.match(src)
     if not match:
-        raise ImageError("Ungueltige data:-URI")
+        raise ImageError("invalid data: URI")
     payload = match.group("data")
     if match.group("b64"):
         return base64.b64decode(payload)
@@ -56,12 +56,12 @@ def _decode_data_uri(src: str) -> bytes:
 
 
 def _convert_svg(blob: bytes) -> bytes:
-    """Wandelt SVG nach PNG, sofern cairosvg installiert ist."""
+    """Converts SVG to PNG, provided cairosvg is installed."""
     try:
         import cairosvg  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover
         raise ImageError(
-            "SVG-Grafiken benoetigen das optionale Paket 'cairosvg' "
+            "SVG graphics need the optional package 'cairosvg' "
             "(pip install cairosvg)"
         ) from exc
     return cairosvg.svg2png(bytestring=blob, output_width=1600)
@@ -80,18 +80,18 @@ def load_image(
     download: bool = True,
     timeout: float = 10.0,
 ) -> LoadedImage:
-    """Laedt ein Bild und liefert Stream plus native Abmessungen."""
+    """Loads an image and returns a stream plus its native dimensions."""
     src = (src or "").strip()
     if not src:
-        raise ImageError("Leere Bildquelle")
+        raise ImageError("empty image source")
 
     if src.startswith("data:"):
         blob = _decode_data_uri(src)
     elif _is_remote(src):
         if not download:
-            raise ImageError(f"Entferntes Bild uebersprungen (--no-remote-images): {src}")
+            raise ImageError(f"remote image skipped (--no-remote-images): {src}")
         if requests is None:
-            raise ImageError("Fuer entfernte Bilder wird 'requests' benoetigt")
+            raise ImageError("remote images require the 'requests' package")
         response = requests.get(src, timeout=timeout, headers={"User-Agent": USER_AGENT})
         response.raise_for_status()
         blob = response.content
@@ -103,7 +103,7 @@ def load_image(
         if not os.path.isabs(path):
             path = os.path.join(base_dir, path)
         if not os.path.isfile(path):
-            raise ImageError(f"Bilddatei nicht gefunden: {path}")
+            raise ImageError(f"image file not found: {path}")
         with open(path, "rb") as handle:
             blob = handle.read()
 
@@ -115,7 +115,7 @@ def load_image(
     try:
         info = DocxImage.from_blob(blob)
         width, height = info.width, info.height
-    except Exception:  # python-docx kennt das Format nicht -> Pillow versuchen
+    except Exception:  # python-docx does not know the format -> try Pillow
         if PILImage is not None:
             try:
                 with PILImage.open(io.BytesIO(blob)) as pil:
@@ -125,16 +125,16 @@ def load_image(
                     width = Emu(int(pil.width / dpi_x * 914400))
                     height = Emu(int(pil.height / dpi_y * 914400))
             except Exception as exc:
-                raise ImageError(f"Bildformat nicht lesbar: {src} ({exc})") from exc
+                raise ImageError(f"unreadable image format: {src} ({exc})") from exc
         else:
-            raise ImageError(f"Bildformat nicht lesbar: {src}")
+            raise ImageError(f"unreadable image format: {src}")
 
     stream.seek(0)
     return LoadedImage(stream=stream, width=width, height=height, source=src)
 
 
 def fit_width(image: LoadedImage, max_width_mm: float) -> Emu | None:
-    """Liefert die Zielbreite, wenn das Bild verkleinert werden muss."""
+    """Returns the target width if the image needs scaling down."""
     limit = Mm(max_width_mm)
     if image.width is None:
         return limit

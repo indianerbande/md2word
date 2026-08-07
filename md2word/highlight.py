@@ -1,7 +1,7 @@
-"""Syntaxhervorhebung fuer Codebloecke via Pygments.
+"""Syntax highlighting for code blocks via Pygments.
 
-Liefert eine Liste farbiger Textfragmente, aus denen der Renderer die
-einzelnen Word-Runs erzeugt.
+Returns a list of coloured text fragments from which the renderer builds
+the individual Word runs.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 
 @dataclass(frozen=True)
 class Fragment:
-    """Ein zusammenhaengendes Stueck Code mit einheitlicher Formatierung."""
+    """A contiguous piece of code sharing one set of formatting."""
 
     text: str
     color: str | None = None
@@ -31,7 +31,7 @@ class Fragment:
     underline: bool = False
 
 
-# Aliasnamen, die in Markdown haeufig vorkommen, aber Pygments unbekannt sind
+# Aliases common in Markdown but unknown to Pygments
 _ALIASES = {
     "js": "javascript",
     "ts": "typescript",
@@ -58,7 +58,7 @@ _ALIASES = {
 
 
 def background_for_style(style_name: str) -> str | None:
-    """Liefert die Hintergrundfarbe eines Pygments-Styles als Hex ohne '#'."""
+    """Returns a Pygments style's background colour as hex without the '#'."""
     if not PYGMENTS_AVAILABLE:
         return None
     try:
@@ -89,10 +89,10 @@ def _resolve_lexer(language: str, code: str):
 
 
 def highlight_code(code: str, language: str = "", style_name: str = "friendly") -> list[Fragment]:
-    """Zerlegt Quelltext in farbige Fragmente.
+    """Splits source code into coloured fragments.
 
-    Faellt auf ein einzelnes unformatiertes Fragment zurueck, wenn Pygments
-    fehlt oder die Sprache nicht erkannt wird.
+    Falls back to a single unformatted fragment when Pygments is missing
+    or the language cannot be identified.
     """
     if not PYGMENTS_AVAILABLE:
         return [Fragment(code)]

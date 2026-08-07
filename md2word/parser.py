@@ -1,9 +1,8 @@
-"""Markdown einlesen: Front Matter abtrennen und nach HTML rendern.
+"""Reading Markdown: split off the front matter and render to HTML.
 
-Der Umweg ueber HTML ist Absicht: verschachtelte Strukturen (Listen in
-Listen, Zitate mit Codebloecken, Tabellen mit Inline-Auszeichnung) lassen
-sich als Baum wesentlich robuster nach Word uebertragen als aus dem
-flachen Token-Strom von markdown-it.
+Routing through HTML is deliberate: nested structures (lists within lists,
+quotes containing code blocks, tables with inline markup) transfer to Word
+far more reliably from a tree than from markdown-it's flat token stream.
 """
 
 from __future__ import annotations
@@ -18,12 +17,12 @@ from mdit_py_plugins.footnote import footnote_plugin
 from mdit_py_plugins.front_matter import front_matter_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 
-try:  # PyYAML ist optional - ohne YAML gibt es nur ein Mini-Parsing
+try:  # PyYAML is optional - without it there is only minimal parsing
     import yaml
 except ImportError:  # pragma: no cover
     yaml = None  # type: ignore[assignment]
 
-# Seitenumbruch-Marker, die vor dem Parsen in ein eigenes Tag umgesetzt werden
+# Page-break markers, rewritten into a tag of our own before parsing
 _PAGEBREAK_PATTERNS = (
     re.compile(r"^[ \t]*<!--\s*(?:pagebreak|page-break|newpage)\s*-->[ \t]*$", re.M | re.I),
     re.compile(r"^[ \t]*\\(?:newpage|pagebreak)[ \t]*$", re.M | re.I),
@@ -33,9 +32,9 @@ _PAGEBREAK_PATTERNS = (
 _PAGEBREAK_HTML = "\n<div class=\"md2word-pagebreak\"></div>\n"
 
 
-# Typografische Anfuehrungszeichen je Sprache: oeffnend/schliessend
-# aussen, dann innen (einfache Anfuehrung)
-NNBSP = "\u202f"  # schmales geschuetztes Leerzeichen
+# Typographic quotation marks per language: opening and closing for the
+# outer level, then for the inner one.
+NNBSP = "\u202f"  # narrow no-break space
 
 _QUOTES = {
     "de": ("\u201e", "\u201c", "\u201a", "\u2018"),
@@ -44,21 +43,20 @@ _QUOTES = {
     "en": ("\u201c", "\u201d", "\u2018", "\u2019"),
 }
 
-# Sprachen mit Anfuehrungszeichen unten/oben
+# Languages using low-then-high quotation marks
 _LANGS_DE = ("de", "cs", "sk", "sl", "hr", "hu", "pl", "ro", "lt", "et", "is")
-# Franzoesisch setzt Guillemets mit schmalem Abstand, die uebrigen ohne
+# French sets guillemets with a narrow space, the others without
 _LANGS_FR = ("fr",)
 _LANGS_GUILLEMETS = ("ru", "es", "it", "pt", "no", "el", "tr", "uk", "be")
 
 
 def quotes_for(lang: str) -> tuple:
-    """Passende Anfuehrungszeichen zur Dokumentsprache.
+    """The quotation marks matching the document language.
 
-    Bewusst ein Vierertupel und kein String: markdown-it greift ueber den
-    Index zu, sodass ein laengerer String stillschweigend die falschen
-    Zeichen liefert - und nur so lassen sich mehrzeichige Eintraege wie
-    das schmale geschuetzte Leerzeichen der franzoesischen Typografie
-    ueberhaupt ausdruecken.
+    Deliberately a four-tuple and not a string: markdown-it indexes into
+    the value, so an over-long string silently supplies the wrong
+    characters - and only a tuple can express multi-character entries such
+    as the narrow no-break space of French typography.
     """
     prefix = (lang or "en").split("-")[0].split("_")[0].lower()
     if prefix in _LANGS_DE:
@@ -71,10 +69,10 @@ def quotes_for(lang: str) -> tuple:
 
 
 def build_markdown(lang: str = "en", allow_html: bool = True) -> MarkdownIt:
-    """Baut die MarkdownIt-Instanz mit allen aktivierten Erweiterungen."""
+    """Builds the MarkdownIt instance with every extension enabled."""
     md = (
-        # html bleibt aktiv, damit rohes HTML als eigener Token erkannt wird -
-        # unterdrueckt wird es unten gezielt beim Rendern.
+        # html stays on so raw HTML becomes its own token - suppressing it
+        # happens further down, at render time.
         MarkdownIt(
             "commonmark",
             {
@@ -84,7 +82,7 @@ def build_markdown(lang: str = "en", allow_html: bool = True) -> MarkdownIt:
                 "quotes": quotes_for(lang),
             },
         )
-        # Das commonmark-Preset schaltet diese Regeln ab - wir wollen sie
+        # The commonmark preset disables these rules - we want them
         .enable(["table", "strikethrough", "linkify", "replacements", "smartquotes"])
         .use(front_matter_plugin)
         .use(footnote_plugin)
@@ -94,7 +92,7 @@ def build_markdown(lang: str = "en", allow_html: bool = True) -> MarkdownIt:
     )
 
     if not allow_html:
-        # Rohes HTML komplett unterdruecken statt es als Text auszugeben
+        # Drop raw HTML entirely instead of emitting it as text
         md.add_render_rule("html_block", lambda *args: "")
         md.add_render_rule("html_inline", lambda *args: "")
 
@@ -102,7 +100,7 @@ def build_markdown(lang: str = "en", allow_html: bool = True) -> MarkdownIt:
 
 
 def split_front_matter(text: str) -> tuple[dict[str, Any], str]:
-    """Trennt einen YAML-Front-Matter-Block vom eigentlichen Markdown ab."""
+    """Separates a YAML front-matter block from the Markdown itself."""
     if not text.startswith("---"):
         return {}, text
 
@@ -123,7 +121,7 @@ def _parse_yaml(raw: str) -> dict[str, Any]:
             return {}
         return data if isinstance(data, dict) else {}
 
-    # Rueckfallebene: einfache "key: value"-Zeilen
+    # Fallback: plain "key: value" lines
     data: dict[str, Any] = {}
     for line in raw.splitlines():
         if ":" in line and not line.lstrip().startswith("#"):
@@ -139,13 +137,13 @@ def _mark_pagebreaks(text: str) -> str:
 
 
 def markdown_to_html(text: str, config: Any = None) -> tuple[str, dict[str, Any]]:
-    """Konvertiert Markdown nach HTML und liefert zusaetzlich das Front Matter."""
+    """Converts Markdown to HTML and returns the front matter alongside."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     meta, body = split_front_matter(text)
     body = _mark_pagebreaks(body)
 
-    # Die Sprache bestimmt die Anfuehrungszeichen; das Front Matter darf sie
-    # setzen, denn es wird vor dem Rendern gelesen.
+    # The language decides the quotation marks; the front matter may set it,
+    # because it is read before rendering starts.
     lang = str(meta.get("lang") or meta.get("language") or getattr(config, "lang", "en"))
     allow_html = not getattr(config, "strip_html", False)
 

@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Baut md2word zu einem eigenstaendigen Programm (PyInstaller).
+"""Builds md2word into a standalone executable (PyInstaller).
 
-  python build.py              # Verzeichnisvariante, startet schnell
-  python build.py --onefile    # eine einzelne Datei, bequem weiterzugeben
-  python build.py --clean      # Zwischenergebnisse vorher loeschen
+  python build.py              # directory build, starts fast
+  python build.py --onefile    # a single file, convenient to hand around
+  python build.py --clean      # remove intermediate output first
 
-PyInstaller kann nicht fuer fremde Systeme bauen: die Windows-.exe muss
-unter Windows entstehen, das macOS-Programm unter macOS, das Linux-Programm
-unter Linux.
+PyInstaller cannot cross-build: the Windows .exe has to be produced on
+Windows, the macOS executable on macOS, the Linux one on Linux.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ SPEC = ROOT / "md2word.spec"
 
 
 def die(message: str) -> "NoReturn":  # type: ignore[valid-type]
-    print(f"Fehler: {message}", file=sys.stderr)
+    print(f"Error: {message}", file=sys.stderr)
     raise SystemExit(1)
 
 
@@ -35,9 +34,9 @@ def check_requirements() -> None:
         import PyInstaller  # noqa: F401
     except ImportError:
         die(
-            "PyInstaller fehlt. Installation:\n"
+            "PyInstaller is missing. Install it with:\n"
             "  pip install pyinstaller\n"
-            "oder gleich mit allen Bauwerkzeugen:\n"
+            "or pull in every build tool at once:\n"
             "  pip install -e \".[build]\""
         )
 
@@ -55,7 +54,7 @@ def check_requirements() -> None:
         except ImportError:
             missing.append(package)
     if missing:
-        die("Diese Pakete fehlen: " + ", ".join(missing) + "\n  pip install -e .")
+        die("These packages are missing: " + ", ".join(missing) + "\n  pip install -e .")
 
 
 def executable_name() -> str:
@@ -69,11 +68,11 @@ def find_result(onefile: bool) -> Path | None:
 
 
 def clear_previous_output() -> None:
-    """Raeumt ein altes Ergebnis weg.
+    """Clears a previous result.
 
-    Beim Wechsel zwischen Einzeldatei und Verzeichnis kollidieren beide
-    Varianten unter demselben Namen in dist/ - PyInstaller bricht dann mit
-    einem Rechtefehler ab.
+    Switching between single-file and directory builds makes both variants
+    collide under the same name in dist/ - PyInstaller then aborts with a
+    permission error.
     """
     for candidate in (ROOT / "dist" / "md2word", ROOT / "dist" / "md2word.exe"):
         if candidate.is_dir():
@@ -89,21 +88,21 @@ def directory_size(path: Path) -> int:
 
 
 def smoke_test(binary: Path) -> bool:
-    """Prueft, ob das gebaute Programm wirklich konvertiert."""
+    """Verifies that the built executable actually converts."""
     import tempfile
 
     sample = (
-        "---\ntitle: Bauprobe\n---\n\n"
-        "# Überschrift\n\nText mit **Auszeichnung**, `Code` und einer Fußnote[^1].\n\n"
-        "- Liste\n- Zweiter Punkt\n\n"
+        "---\ntitle: Build check\n---\n\n"
+        "# Heading\n\nText with **emphasis**, `code` and a footnote[^1].\n\n"
+        "- List item\n- Second item\n\n"
         "| A | B |\n|---|---|\n| 1 | 2 |\n\n"
         "```python\ndef f():\n    return 42\n```\n\n"
-        "[^1]: Die Anmerkung.\n"
+        "[^1]: The note.\n"
     )
 
     with tempfile.TemporaryDirectory() as tmp:
-        source = Path(tmp) / "probe.md"
-        target = Path(tmp) / "probe.docx"
+        source = Path(tmp) / "check.md"
+        target = Path(tmp) / "check.docx"
         source.write_text(sample, encoding="utf-8")
 
         result = subprocess.run(
@@ -113,23 +112,23 @@ def smoke_test(binary: Path) -> bool:
             timeout=120,
         )
         if result.returncode != 0:
-            print("  Probelauf fehlgeschlagen:", result.stderr.strip()[:500])
+            print("  smoke test failed:", result.stderr.strip()[:500])
             return False
         if not target.exists() or target.stat().st_size < 5000:
-            print("  Probelauf lieferte keine brauchbare Datei")
+            print("  smoke test produced no usable file")
             return False
 
-        # Grobpruefung des Pakets
+        # Rough check of the package
         import zipfile
 
         with zipfile.ZipFile(target) as archive:
             names = set(archive.namelist())
             for required in ("word/document.xml", "word/styles.xml", "word/numbering.xml"):
                 if required not in names:
-                    print(f"  Im Ergebnis fehlt {required}")
+                    print(f"  the result is missing {required}")
                     return False
             if "word/footnotes.xml" not in names:
-                print("  Fussnoten fehlen im Ergebnis")
+                print("  footnotes are missing from the result")
                 return False
     return True
 
@@ -139,10 +138,10 @@ def main() -> int:
     parser.add_argument(
         "--onefile",
         action="store_true",
-        help="Alles in eine Datei packen (bequemer weiterzugeben, startet langsamer)",
+        help="Pack everything into one file (easier to share, slower to start)",
     )
-    parser.add_argument("--clean", action="store_true", help="build/ und dist/ vorher loeschen")
-    parser.add_argument("--no-test", action="store_true", help="Probelauf nach dem Bauen ueberspringen")
+    parser.add_argument("--clean", action="store_true", help="Remove build/ and dist/ first")
+    parser.add_argument("--no-test", action="store_true", help="Skip the smoke test after building")
     args = parser.parse_args()
 
     check_requirements()
@@ -151,7 +150,7 @@ def main() -> int:
     if args.clean:
         for folder in ("build", "dist"):
             shutil.rmtree(ROOT / folder, ignore_errors=True)
-        print("Zwischenergebnisse geloescht")
+        print("Removed intermediate output")
 
     clear_previous_output()
 
@@ -163,33 +162,33 @@ def main() -> int:
     else:
         environment.pop("MD2WORD_ONEFILE", None)
 
-    print(f"Baue md2word fuer {platform.system()} {platform.machine()} "
-          f"({'eine Datei' if args.onefile else 'ein Verzeichnis'}) ...")
+    print(f"Building md2word for {platform.system()} {platform.machine()} "
+          f"({'single file' if args.onefile else 'directory'}) ...")
     started = time.time()
     result = subprocess.run(command, env=environment)
     if result.returncode != 0:
-        die("PyInstaller ist fehlgeschlagen")
+        die("PyInstaller failed")
 
     binary = find_result(args.onefile)
     if binary is None:
-        die("Das gebaute Programm wurde nicht gefunden")
+        die("could not find the built executable")
 
     size = directory_size(binary if args.onefile else binary.parent)
-    print(f"\nFertig in {time.time() - started:.0f} s")
-    print(f"  Programm : {binary}")
-    print(f"  Groesse  : {size / 1024 / 1024:.1f} MB")
+    print(f"\nDone in {time.time() - started:.0f} s")
+    print(f"  Executable : {binary}")
+    print(f"  Size       : {size / 1024 / 1024:.1f} MB")
 
     if not args.no_test:
-        print("\nProbelauf ...")
+        print("\nSmoke test ...")
         if smoke_test(binary):
-            print("  Probelauf bestanden - das Programm konvertiert korrekt.")
+            print("  smoke test passed - the executable converts correctly.")
         else:
-            die("Der Probelauf ist fehlgeschlagen")
+            die("the smoke test failed")
 
     if platform.system() == "Darwin":
         print(
-            "\nHinweis fuer macOS: Das Programm ist nicht signiert. Beim ersten\n"
-            "Start kann Gatekeeper es blockieren. Freigeben mit:\n"
+            "\nNote for macOS: the executable is not signed, so Gatekeeper may\n"
+            "block it on first launch. Clear the quarantine flag with:\n"
             f"  xattr -dr com.apple.quarantine {binary}"
         )
 

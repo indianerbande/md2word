@@ -1,18 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller-Bauplan fuer md2word.
+"""PyInstaller build recipe for md2word.
 
-Erzeugt ein eigenstaendiges Programm, das ohne Python-Installation laeuft:
-  Windows -> dist/md2word.exe   bzw. dist/md2word/md2word.exe
-  macOS   -> dist/md2word       (Unix-Executable fuer das Terminal)
+Produces a standalone program that runs without a Python installation:
+  Windows -> dist/md2word.exe   or dist/md2word/md2word.exe
+  macOS   -> dist/md2word       (a Unix executable for the terminal)
   Linux   -> dist/md2word
 
-Zwei Bauarten:
-  pyinstaller md2word.spec --noconfirm                     # ein Verzeichnis (schneller Start)
-  pyinstaller md2word.spec --noconfirm -- --onefile        # eine einzelne Datei
+Two build modes:
+  pyinstaller md2word.spec --noconfirm                     # one directory (fast start)
+  pyinstaller md2word.spec --noconfirm -- --onefile        # a single file
 
-Bequemer geht es mit dem Hilfsskript:
-  python build.py            # Verzeichnisvariante
-  python build.py --onefile  # Einzeldatei
+The helper script is more convenient:
+  python build.py            # directory build
+  python build.py --onefile  # single file
 """
 
 import os
@@ -20,34 +20,34 @@ import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# PyInstaller reicht alles nach "--" in sys.argv an die spec weiter (der
-# Trenner selbst wird dabei entfernt). Umgebungsvariable als Ausweichweg.
+# PyInstaller forwards everything after "--" in sys.argv to the spec (the
+# separator itself is stripped). The env var is a fallback route.
 ONEFILE = "--onefile" in sys.argv or os.environ.get("MD2WORD_ONEFILE") == "1"
 
 # ----------------------------------------------------------------------
-# Datendateien
+# Data files
 # ----------------------------------------------------------------------
-# python-docx bringt die Word-Grundvorlage als Paketdatei mit. Ohne sie
-# scheitert jeder Document()-Aufruf im gebauten Programm.
+# python-docx ships the base Word template as a package file. Without it
+# every Document() call in the built program fails.
 datas = collect_data_files("docx", includes=["templates/*", "templates/**/*"])
 
-# Die Module in docx/parts/ bauen ihre Vorlagenpfade als
-# os.path.join(__file__, "..", "templates", ...). Im Bundle liegt in
-# docx/parts/ keine Datei, also gibt es das Verzeichnis nicht - und das ".."
-# laesst sich nicht aufloesen, wenn eine Pfadkomponente fehlt. Ein
-# Platzhalter legt das Verzeichnis an und repariert damit Kopf- und
-# Fusszeilen, Kommentare, Einstellungen und Formatvorlagen.
-import docx as _docx  # noqa: E402  (nur zur Bauzeit importiert)
+# The modules in docx/parts/ build their template paths as
+# os.path.join(__file__, "..", "templates", ...). The bundle has no file in
+# docx/parts/, so the directory does not exist - and ".." cannot be
+# resolved when a path component is missing. A placeholder creates the
+# directory and thereby fixes headers, footers, comments, settings and
+# styles.
+import docx as _docx  # noqa: E402  (imported at build time only)
 
 _marker = os.path.join(os.path.dirname(_docx.__file__), "py.typed")
 if os.path.isfile(_marker):
     datas.append((_marker, "docx/parts"))
 
 # ----------------------------------------------------------------------
-# Versteckte Importe
+# Hidden imports
 # ----------------------------------------------------------------------
-# Pygments laedt Lexer und Farbschemata erst zur Laufzeit ueber
-# Namenstabellen - der statische Import-Scanner sieht sie nicht.
+# Pygments resolves lexers and colour schemes at runtime through name
+# tables - the static import scanner never sees them.
 hiddenimports = (
     collect_submodules("pygments.lexers")
     + collect_submodules("pygments.styles")
@@ -62,7 +62,7 @@ hiddenimports = (
     ]
 )
 
-# Was md2word nicht braucht - haelt das Ergebnis klein
+# What md2word does not need - keeps the result small
 excludes = [
     "tkinter", "unittest", "pydoc", "doctest", "pdb",
     "numpy", "scipy", "pandas", "matplotlib", "IPython", "jupyter",

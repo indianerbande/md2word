@@ -1,4 +1,4 @@
-"""Dokumentrahmen: Front Matter, Titelseite, Verzeichnis, Kopf-/Fusszeile, Themes."""
+"""Document frame: front matter, title page, TOC, header/footer, themes."""
 
 from __future__ import annotations
 
@@ -27,33 +27,33 @@ def instr_texts(document) -> list[str]:
 def test_front_matter_sets_core_properties(convert):
     path, _ = convert(
         "---\n"
-        "title: Mein Titel\n"
+        "title: My Title\n"
         "author: Jane Doe\n"
         "keywords: a, b\n"
-        "subject: Ein Thema\n"
+        "subject: A Subject\n"
         "---\n\n"
-        "# Inhalt\n"
+        "# Content\n"
     )
     props = Document(str(path)).core_properties
-    assert props.title == "Mein Titel"
+    assert props.title == "My Title"
     assert props.author == "Jane Doe"
     assert props.keywords == "a, b"
-    assert props.subject == "Ein Thema"
+    assert props.subject == "A Subject"
 
 
 def test_front_matter_is_not_rendered(doc):
-    document = doc("---\ntitle: Weg damit\n---\n\nNur dieser Text.")
+    document = doc("---\ntitle: Discard me\n---\n\nOnly this text.")
     assert "title:" not in " ".join(texts(document))
 
 
 def test_front_matter_enables_toc(doc):
-    document = doc("---\ntoc: true\n---\n\n# Kapitel")
+    document = doc("---\ntoc: true\n---\n\n# Chapter")
     assert any("TOC" in t for t in instr_texts(document))
 
 
 def test_front_matter_list_author(convert):
-    path, _ = convert("---\nauthor:\n  - Erste Person\n  - Zweite Person\n---\n\nText")
-    assert Document(str(path)).core_properties.author == "Erste Person, Zweite Person"
+    path, _ = convert("---\nauthor:\n  - First Person\n  - Second Person\n---\n\nText")
+    assert Document(str(path)).core_properties.author == "First Person, Second Person"
 
 
 def test_front_matter_date_object(convert):
@@ -62,7 +62,7 @@ def test_front_matter_date_object(convert):
 
 
 def test_cli_option_beats_front_matter():
-    """Was explizit auf der Kommandozeile steht, gewinnt gegen das Front Matter."""
+    """What is stated explicitly on the command line beats the front matter."""
     from md2word.converter import _apply_front_matter
 
     config = Config(theme="modern")
@@ -76,84 +76,84 @@ def test_cli_option_beats_front_matter():
 
 
 def test_broken_front_matter_is_tolerated(doc):
-    document = doc("---\n: : nicht: gueltig: yaml\n---\n\nDer Text kommt trotzdem.")
-    assert any("Der Text kommt trotzdem." in t for t in texts(document))
+    document = doc("---\n: : not: valid: yaml\n---\n\nThe text arrives anyway.")
+    assert any("The text arrives anyway." in t for t in texts(document))
 
 
 def test_unknown_front_matter_keys_are_kept(convert):
     from md2word.converter import _apply_front_matter
 
-    merged = _apply_front_matter(Config(), {"projektnummer": 4711})
-    assert merged._extra["projektnummer"] == 4711
+    merged = _apply_front_matter(Config(), {"project_number": 4711})
+    assert merged._extra["project_number"] == 4711
 
 
 # ----------------------------------------------------------------------
-# Titelseite
+# Title page
 # ----------------------------------------------------------------------
 def test_title_page_layout(doc):
     document = doc(
-        "---\ntitle: Der Titel\nsubtitle: Der Untertitel\nauthor: Wer\n---\n\n# Kapitel",
+        "---\ntitle: The Title\nsubtitle: The Subtitle\nauthor: Someone\n---\n\n# Chapter",
         title_page=True,
     )
     styles = [p.style.style_id for p in document.paragraphs]
     assert "Title" in styles and "Subtitle" in styles
     assert styles.index("Title") < styles.index("Heading1")
     breaks = [n for n in document.element.body.iter(w("br")) if n.get(w("type")) == "page"]
-    assert breaks, "nach der Titelseite folgt ein Seitenumbruch"
+    assert breaks, "a page break follows the title page"
 
 
 def test_title_without_title_page_is_inline(doc):
-    document = doc("---\ntitle: Der Titel\n---\n\nNur Text, keine Ueberschrift.")
-    assert find_paragraph(document, "Der Titel").style.style_id == "Title"
+    document = doc("---\ntitle: The Title\n---\n\nJust text, no heading.")
+    assert find_paragraph(document, "The Title").style.style_id == "Title"
 
 
 def test_title_skipped_when_document_starts_with_h1(doc):
-    document = doc("---\ntitle: Meta-Titel\n---\n\n# Eigene Ueberschrift")
+    document = doc("---\ntitle: Metadata Title\n---\n\n# Own Heading")
     assert "Title" not in [p.style.style_id for p in document.paragraphs]
 
 
 # ----------------------------------------------------------------------
-# Inhaltsverzeichnis
+# Table of contents
 # ----------------------------------------------------------------------
 def test_toc_field_present(doc):
-    document = doc("# Eins\n\n## Zwei", toc=True)
+    document = doc("# One\n\n## Two", toc=True)
     fields = instr_texts(document)
     assert any(f.startswith("TOC") for f in fields)
 
 
 def test_toc_depth_in_field(doc):
-    document = doc("# Eins", toc=True, toc_depth=2)
+    document = doc("# One", toc=True, toc_depth=2)
     assert any('"1-2"' in f for f in instr_texts(document))
 
 
 def test_toc_heading_uses_configured_title(doc):
-    document = doc("# Eins", toc=True, toc_title="Übersicht")
-    assert find_paragraph(document, "Übersicht").style.style_id == "TOCHeading"
+    document = doc("# One", toc=True, toc_title="Overview")
+    assert find_paragraph(document, "Overview").style.style_id == "TOCHeading"
 
 
 def test_toc_triggers_field_update(convert):
-    path, _ = convert("# Eins", toc=True)
+    path, _ = convert("# One", toc=True)
     settings = etree.fromstring(zipfile.ZipFile(path).read("word/settings.xml"))
     node = settings.find(w("updateFields"))
     assert node is not None and node.get(w("val")) == "true"
 
 
 # ----------------------------------------------------------------------
-# Nummerierte Ueberschriften
+# Numbered headings
 # ----------------------------------------------------------------------
 def test_numbered_headings_attach_numbering_to_styles(convert, assert_valid):
-    path, _ = convert("# Eins\n\n## Eins-Eins", number_headings=True)
+    path, _ = convert("# One\n\n## One-One", number_headings=True)
     assert_valid(path)
     styles = etree.fromstring(zipfile.ZipFile(path).read("word/styles.xml"))
     heading1 = [
         s for s in styles.findall(w("style")) if s.get(w("styleId")) == "Heading1"
     ][0]
     numPr = heading1.find(w("pPr")).find(w("numPr"))
-    assert numPr is not None, "Heading 1 muss mit der Nummerierung verknuepft sein"
+    assert numPr is not None, "Heading 1 must be bound to the numbering"
 
 
 # ----------------------------------------------------------------------
-# Kopf- und Fusszeile
+# Header and footer
 # ----------------------------------------------------------------------
 def test_page_numbers_create_footer_field(convert):
     path, _ = convert("Text", page_numbers=True)
@@ -166,28 +166,28 @@ def test_page_numbers_create_footer_field(convert):
 
 
 def test_header_text(convert):
-    path, _ = convert("Text", header_text="Vertraulich")
+    path, _ = convert("Text", header_text="Confidential")
     z = zipfile.ZipFile(path)
     headers = [n for n in z.namelist() if n.startswith("word/header")]
     assert headers
     body = "".join(
         t.text or "" for t in etree.fromstring(z.read(headers[0])).iter(w("t"))
     )
-    assert "Vertraulich" in body
+    assert "Confidential" in body
 
 
 def test_footer_text_and_page_numbers_combined(convert, assert_valid):
-    path, _ = convert("Text", page_numbers=True, footer_text="Firma AG")
+    path, _ = convert("Text", page_numbers=True, footer_text="Acme Ltd")
     assert_valid(path)
     z = zipfile.ZipFile(path)
     footer = [n for n in z.namelist() if n.startswith("word/footer")][0]
     tree = etree.fromstring(z.read(footer))
-    assert "Firma AG" in "".join(t.text or "" for t in tree.iter(w("t")))
+    assert "Acme Ltd" in "".join(t.text or "" for t in tree.iter(w("t")))
     assert "PAGE" in [(n.text or "").strip() for n in tree.iter(w("instrText"))]
 
 
 # ----------------------------------------------------------------------
-# Seitenlayout
+# Page layout
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize("size", sorted(PAGE_SIZES))
 def test_page_sizes(doc, size):
@@ -213,11 +213,11 @@ def test_margins(doc):
 
 
 # ----------------------------------------------------------------------
-# Themes und Typografie
+# Themes and typography
 # ----------------------------------------------------------------------
 @pytest.mark.parametrize("theme", sorted(THEMES))
 def test_themes_apply_fonts(doc, theme):
-    document = doc("# Titel\n\nText", theme=theme)
+    document = doc("# Title\n\nText", theme=theme)
     normal = [s for s in document.styles if s.style_id == "Normal"][0]
     assert normal.font.name == THEMES[theme]["body_font"]
 
@@ -243,8 +243,8 @@ def test_document_language_is_set(convert):
 
 
 def test_german_quotes(doc):
-    document = doc('Er sagte "Hallo".', lang="de-DE")
-    assert "„Hallo“" in document.paragraphs[0].text
+    document = doc('She said "Hello".', lang="de-DE")
+    assert "„Hello“" in document.paragraphs[0].text
 
 
 def test_english_quotes(doc):
@@ -268,53 +268,53 @@ def test_english_quotes(doc):
     ],
 )
 def test_quotes_per_language(doc, lang, opening, closing):
-    document = doc('Er sagte "Wort" dazu.', lang=lang or "en")
+    document = doc('They said "word" about it.', lang=lang or "en")
     text = document.paragraphs[0].text
     assert opening in text and closing in text, f"{lang}: {text!r}"
-    assert '"' not in text, f"{lang}: gerades Anfuehrungszeichen uebrig: {text!r}"
+    assert '"' not in text, f"{lang}: a straight quote survived: {text!r}"
 
 
 def test_every_quote_set_has_exactly_four_entries():
-    """markdown-it greift ueber den Index zu.
+    """markdown-it indexes into the value.
 
-    Ein laengerer String liefert stillschweigend die falschen Zeichen -
-    genau so war das schliessende Guillemet einmal ein Leerzeichen.
+    An over-long string silently supplies the wrong characters - that is
+    exactly how the closing guillemet once became a space.
     """
     from md2word.parser import _QUOTES, quotes_for
 
     for name, quotes in _QUOTES.items():
-        assert len(quotes) == 4, f"{name}: {len(quotes)} statt 4 Eintraege"
+        assert len(quotes) == 4, f"{name}: {len(quotes)} entries instead of 4"
 
     for lang in ("de", "fr", "en", "ru", "xx", ""):
         assert len(quotes_for(lang)) == 4
 
 
 def test_french_quotes_use_narrow_space(doc):
-    """Franzoesische Typografie setzt Guillemets mit schmalem Abstand."""
+    """French typography sets guillemets with a narrow space."""
     document = doc('Il a dit "Bonjour" ensuite.', lang="fr-FR")
     assert "« Bonjour »" in document.paragraphs[0].text
 
 
 # ----------------------------------------------------------------------
-# Referenzdokument
+# Reference document
 # ----------------------------------------------------------------------
 def test_reference_doc_keeps_its_styles(tmp_path, convert):
-    reference = tmp_path / "vorlage.docx"
+    reference = tmp_path / "template.docx"
     template = Document()
     template.styles["Normal"].font.name = "Garamond"
     template.styles["Normal"].font.size = Mm(0).__class__(190500)  # 15 pt
-    template.add_paragraph("Dieser Inhalt muss verschwinden.")
+    template.add_paragraph("This content has to disappear.")
     template.save(str(reference))
 
-    path, _ = convert("# Neu\n\nText", reference_doc=str(reference))
+    path, _ = convert("# New\n\nText", reference_doc=str(reference))
     document = Document(str(path))
     assert document.styles["Normal"].font.name == "Garamond"
-    assert "Dieser Inhalt muss verschwinden." not in " ".join(texts(document))
-    assert "Neu" in " ".join(texts(document))
+    assert "This content has to disappear." not in " ".join(texts(document))
+    assert "New" in " ".join(texts(document))
 
 
 def test_reference_doc_gets_missing_styles(tmp_path, convert, assert_valid):
-    reference = tmp_path / "vorlage.docx"
+    reference = tmp_path / "template.docx"
     Document().save(str(reference))
 
     path, _ = convert("```python\nx = 1\n```", reference_doc=str(reference))
@@ -325,4 +325,4 @@ def test_reference_doc_gets_missing_styles(tmp_path, convert, assert_valid):
 
 def test_missing_reference_doc_raises(convert):
     with pytest.raises(FileNotFoundError):
-        convert("Text", reference_doc="/gibt/es/nicht.docx")
+        convert("Text", reference_doc="/does/not/exist.docx")

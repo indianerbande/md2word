@@ -1,233 +1,228 @@
-# SPEC — Technischer Unterbau von md2word
+# SPEC — How md2word works internally
 
-Dieses Dokument erklärt, wie md2word intern arbeitet: welchen Weg ein
-Markdown-Text bis zur fertigen `.docx` nimmt, welche Entscheidungen dahinter
-stehen und wo die OOXML-Fallstricke liegen, die den Großteil der Arbeit
-ausgemacht haben.
+This document explains the machinery: the path a Markdown text takes to become a
+finished `.docx`, the reasoning behind the design, and the OOXML traps that
+accounted for most of the work.
 
-Die Bedienung steht im [README](README.md). Hier geht es um das Innenleben — für
-alle, die den Code erweitern, debuggen oder einschätzen wollen.
-
----
-
-## Inhalt
-
-1. [Die Pipeline im Überblick](#1-die-pipeline-im-überblick)
-2. [Was eine .docx-Datei eigentlich ist](#2-was-eine-docx-datei-eigentlich-ist)
-3. [Modulaufbau](#3-modulaufbau)
-4. [Stufe 1: Markdown → HTML](#4-stufe-1-markdown--html)
-5. [Stufe 2: HTML-Baum → Word-Dokument](#5-stufe-2-html-baum--word-dokument)
-6. [Die OOXML-Handarbeit](#6-die-ooxml-handarbeit)
-7. [Konfigurationsauflösung](#7-konfigurationsauflösung)
-8. [Maßeinheiten](#8-maßeinheiten)
-9. [PyInstaller: die drei Fallstricke](#9-pyinstaller-die-drei-fallstricke)
-10. [Validierung und Teststrategie](#10-validierung-und-teststrategie)
-11. [Erweiterungspunkte](#11-erweiterungspunkte)
-12. [Bewusste Kompromisse](#12-bewusste-kompromisse)
+For how to *use* the tool, see the [README](README.md). This is about the
+internals — for anyone extending, debugging or evaluating the code.
 
 ---
 
-## 1. Die Pipeline im Überblick
+## Contents
+
+1. [The pipeline at a glance](#1-the-pipeline-at-a-glance)
+2. [What a .docx file actually is](#2-what-a-docx-file-actually-is)
+3. [Module layout](#3-module-layout)
+4. [Stage 1: Markdown → HTML](#4-stage-1-markdown--html)
+5. [Stage 2: HTML tree → Word document](#5-stage-2-html-tree--word-document)
+6. [The hand-written OOXML](#6-the-hand-written-ooxml)
+7. [Resolving configuration](#7-resolving-configuration)
+8. [Units of measure](#8-units-of-measure)
+9. [PyInstaller: the three pitfalls](#9-pyinstaller-the-three-pitfalls)
+10. [Validation and test strategy](#10-validation-and-test-strategy)
+11. [Extension points](#11-extension-points)
+12. [Deliberate trade-offs](#12-deliberate-trade-offs)
+
+---
+
+## 1. The pipeline at a glance
 
 ```mermaid
 flowchart TD
-    A["Markdown-Datei<br/>(UTF-8, BOM-tolerant)"] --> B["parser.split_front_matter<br/>YAML abtrennen"]
-    B --> C["parser._mark_pagebreaks<br/>Marker → &lt;div class='md2word-pagebreak'&gt;"]
-    C --> D["markdown-it-py<br/>+ 5 Plugins → HTML"]
-    D --> E["lxml.html.fragment_fromstring<br/>→ Elementbaum"]
+    A["Markdown file<br/>(UTF-8, BOM-tolerant)"] --> B["parser.split_front_matter<br/>strip the YAML block"]
+    B --> C["parser._mark_pagebreaks<br/>markers → &lt;div class='md2word-pagebreak'&gt;"]
+    C --> D["markdown-it-py<br/>+ 5 plugins → HTML"]
+    D --> E["lxml.html.fragment_fromstring<br/>→ element tree"]
 
-    B -.Metadaten.-> F["converter._apply_front_matter<br/>Config zusammenführen"]
+    B -.metadata.-> F["converter._apply_front_matter<br/>merge into the config"]
     F --> G["converter._create_document<br/>python-docx Document"]
-    G --> H["styles.apply_styles<br/>Formatvorlagen + Seitenlayout"]
-    H --> I["Rahmen: Titelseite,<br/>Inhaltsverzeichnis"]
+    G --> H["styles.apply_styles<br/>styles + page layout"]
+    H --> I["Frame: title page,<br/>table of contents"]
 
     E --> J["renderer.DocxRenderer.render"]
     I --> J
-    J --> K["Nachbearbeitung:<br/>Kopf-/Fußzeile, Feld-Update,<br/>Leerraum trimmen"]
-    K --> L["document.save<br/>→ OPC-Paket"]
+    J --> K["Post-processing:<br/>header/footer, field update,<br/>whitespace trim"]
+    K --> L["document.save<br/>→ OPC package"]
 ```
 
-Der Ablauf in `converter.convert_text` ist bewusst als feste Reihenfolge
-geschrieben, nicht als flexible Plugin-Kette. Die Reihenfolge ist an mehreren
-Stellen bedeutsam:
+The sequence in `converter.convert_text` is written as a fixed order on purpose,
+not as a flexible plugin chain. The order matters in several places:
 
-| Schritt | Muss vorher passieren, weil … |
-|:--------|:------------------------------|
-| Front Matter auswerten | … die Konfiguration alles Weitere steuert, inklusive der Anführungszeichen beim Parsen |
-| `apply_styles` | … der Renderer Formatvorlagen über ihre `styleId` zuweist; fehlt eine, gibt es einen `KeyError` |
-| `enable_heading_numbering` | … es die Überschriftenformate ändert, die danach nur noch benutzt werden |
-| Titelseite und Verzeichnis | … sie am Dokumentanfang stehen und python-docx nur anhängen kann |
-| Renderer | … der Inhalt hinter den Rahmen gehört |
-| Kopf-/Fußzeile | … sie einen eigenen Part erzeugen, unabhängig vom Textfluss |
-| Leerraum trimmen | … erst dann alle Absätze existieren, auch die im Fußnoten-Part |
+| Step | Has to come first because … |
+|:-----|:----------------------------|
+| Evaluate front matter | … the configuration drives everything else, right down to which quotation marks the parser uses |
+| `apply_styles` | … the renderer assigns styles by `styleId`; a missing one is a `KeyError` |
+| `enable_heading_numbering` | … it modifies the heading styles that are only *used* afterwards |
+| Title page and TOC | … they belong at the start, and python-docx can only append |
+| Renderer | … the content goes behind the frame |
+| Header and footer | … they create their own parts, independent of the text flow |
+| Whitespace trim | … only by then do all paragraphs exist, including those in the footnotes part |
 
 ---
 
-## 2. Was eine .docx-Datei eigentlich ist
+## 2. What a .docx file actually is
 
-Ohne dieses Modell ist der Rest schwer zu lesen. Eine `.docx` ist ein
-**ZIP-Archiv nach dem OPC-Standard** (Open Packaging Conventions) mit
-XML-Dateien darin, die *Parts* heißen:
+Without this model the rest is hard to follow. A `.docx` is a **ZIP archive
+following the OPC standard** (Open Packaging Conventions) containing XML files
+called *parts*:
 
 ```
 demo.docx
-├── [Content_Types].xml          Welcher Part hat welchen MIME-Typ
-├── _rels/.rels                  Einstieg: wo liegt das Hauptdokument
+├── [Content_Types].xml          Which part has which MIME type
+├── _rels/.rels                  Entry point: where the main document lives
 └── word/
-    ├── document.xml             Der Textkörper
-    ├── styles.xml               Alle Formatvorlagen
-    ├── numbering.xml            Listendefinitionen
-    ├── settings.xml             Dokumenteinstellungen
-    ├── footnotes.xml            Fußnotentexte           ← legt md2word selbst an
-    ├── footer1.xml              Fußzeile                ← nur bei --page-numbers
-    ├── media/image1.png         Eingebettete Bilder
-    └── _rels/document.xml.rels  Beziehungen des Hauptdokuments
+    ├── document.xml             The body text
+    ├── styles.xml               All styles
+    ├── numbering.xml            List definitions
+    ├── settings.xml             Document settings
+    ├── footnotes.xml            Footnote texts          ← md2word creates this itself
+    ├── footer1.xml              Footer                  ← only with --page-numbers
+    ├── media/image1.png         Embedded images
+    └── _rels/document.xml.rels  Relationships of the main document
 ```
 
-Drei Regeln gelten durchgängig und erklären fast jeden Sonderfall im Code:
+Three rules apply throughout and explain nearly every special case in the code:
 
-**Erstens: Jeder Part braucht einen Eintrag in `[Content_Types].xml`.** Fehlt
-er, verweigert Word die Datei komplett. python-docx erzeugt die Datei beim
-Speichern automatisch aus den `content_type`-Angaben aller Parts — deshalb
-genügt es, einen Part korrekt zu konstruieren.
+**First: every part needs an entry in `[Content_Types].xml`.** Without one, Word
+refuses the file outright. python-docx generates that file on save from the
+`content_type` of each part — which is why constructing a part correctly is
+enough.
 
-**Zweitens: Verweise zwischen Parts laufen über Relationships, nicht über
-Pfade.** Ein Bild im Text steht nicht als Dateiname im `document.xml`, sondern
-als `r:id="rId7"`; erst `word/_rels/document.xml.rels` löst `rId7` zu
-`media/image1.png` auf. Dasselbe gilt für externe Hyperlinks und den
-Fußnoten-Part. Ein `r:id` ohne passenden Eintrag macht die Datei ungültig —
-darum prüft die Testsuite genau das.
+**Second: references between parts go through relationships, not paths.** An
+image in the text does not appear as a filename in `document.xml` but as
+`r:id="rId7"`; only `word/_rels/document.xml.rels` resolves `rId7` to
+`media/image1.png`. The same holds for external hyperlinks and the footnotes
+part. An `r:id` without a matching entry invalidates the file — which is exactly
+what the test suite checks.
 
-**Drittens: Die Elementreihenfolge ist schemagebunden.** WordprocessingML
-schreibt in vielen Elementen eine feste Kindfolge vor (`xsd:sequence`). Ein
-`w:abstractNum` nach einem `w:num` in `numbering.xml` ist ebenso ungültig wie
-ein `w:pStyle` nach `w:numPr` innerhalb von `w:pPr`. python-docx hält die
-Reihenfolge für die Elemente ein, die es selbst kennt; bei handgebautem XML
-liegt die Verantwortung bei uns.
+**Third: element order is bound by the schema.** WordprocessingML prescribes a
+fixed child order (`xsd:sequence`) in many elements. A `w:abstractNum` after a
+`w:num` in `numbering.xml` is just as invalid as a `w:pStyle` after `w:numPr`
+inside `w:pPr`. python-docx maintains the order for the elements it knows about;
+for hand-built XML the responsibility is ours.
 
-### Warum python-docx und nicht direkt lxml?
+### Why python-docx and not lxml directly?
 
-python-docx nimmt die OPC-Buchhaltung ab — Paket schreiben, Content-Types
-pflegen, Relationship-IDs vergeben, Bilder deduplizieren, `sectPr` verwalten.
-Seine *Inhalts-API* deckt aber nur einen Bruchteil von WordprocessingML ab: kein
-Fußnoten-Support, keine Feldfunktionen, keine Hyperlinks, keine
-Nummerierungsdefinitionen, keine Absatzrahmen oder Schattierungen.
+python-docx takes care of the OPC bookkeeping — writing the package, maintaining
+content types, allocating relationship IDs, deduplicating images, managing
+`sectPr`. Its *content* API, however, covers only a fraction of
+WordprocessingML: no footnotes, no field codes, no hyperlinks, no numbering
+definitions, no paragraph borders or shading.
 
-md2word nutzt deshalb beide Ebenen: die hohe API für alles Vorhandene, und für
-den Rest direkten Zugriff auf den lxml-Baum darunter (`paragraph._p`,
-`run._r`, `cell._tc`). Diese Zugriffe sind bewusst in **`docxutil.py`**
-gebündelt, damit der Renderer selbst lesbar bleibt und ein API-Bruch von
-python-docx nur eine Datei betrifft.
+md2word therefore works on both levels: the high-level API for everything it
+offers, and direct access to the lxml tree underneath for the rest
+(`paragraph._p`, `run._r`, `cell._tc`). Those accesses are deliberately
+concentrated in **`docxutil.py`**, so the renderer itself stays readable and a
+breaking change in python-docx only touches one file.
 
 ---
 
-## 3. Modulaufbau
+## 3. Module layout
 
 ```
-cli.py          Argumente → Config, Dateinamen, Stapelverarbeitung, Exit-Codes
+cli.py          Arguments → Config, file names, batch processing, exit codes
    ↓
-converter.py    Ablaufsteuerung: Dokument aufbauen, Rahmen setzen, speichern
+converter.py    Orchestration: build the document, set the frame, save
    ↓        ↘
-parser.py    renderer.py     Markdown→HTML   |   HTML-Baum→Word
+parser.py    renderer.py     Markdown→HTML   |   HTML tree→Word
                 ↓      ↘
           styles.py   docxutil.py   images.py   highlight.py
                 ↓          ↓
-              config.py (von allen gelesen, hängt von nichts ab)
+              config.py (read by all, depends on nothing)
 ```
 
-Die Abhängigkeiten zeigen strikt nach unten; es gibt keine Zyklen. `config.py`
-importiert nichts aus dem Projekt und lässt sich isoliert testen.
+Dependencies point strictly downwards; there are no cycles. `config.py` imports
+nothing from the project and can be tested in isolation.
 
-| Modul | Verantwortung | Kennt OOXML? |
-|:------|:--------------|:-------------|
-| `cli.py` | Kommandozeile, Ein-/Ausgabepfade, Fehlerausgabe | nein |
-| `config.py` | Alle Einstellungen, Farbschemata, abgeleitete Größen | nein |
-| `parser.py` | Markdown → HTML, Front Matter, Sprachlogik | nein |
-| `converter.py` | Reihenfolge, Titelseite, Verzeichnis, Kopf-/Fußzeile | wenig |
-| `renderer.py` | HTML-Baum → Absätze, Runs, Tabellen | mittelbar |
-| `styles.py` | Formatvorlagen, Seitenlayout | ja |
-| `docxutil.py` | Die gesamte XML-Handarbeit | vollständig |
-| `images.py` | Bildquellen laden, Abmessungen bestimmen | kaum |
-| `highlight.py` | Pygments-Tokens → Farbfragmente | nein |
+| Module | Responsibility | Knows OOXML? |
+|:-------|:---------------|:-------------|
+| `cli.py` | Command line, input/output paths, error reporting | no |
+| `config.py` | All settings, themes, derived measurements | no |
+| `parser.py` | Markdown → HTML, front matter, language logic | no |
+| `converter.py` | Ordering, title page, TOC, header and footer | a little |
+| `renderer.py` | HTML tree → paragraphs, runs, tables | indirectly |
+| `styles.py` | Styles, page layout | yes |
+| `docxutil.py` | All the hand-written XML | entirely |
+| `images.py` | Loading image sources, determining dimensions | barely |
+| `highlight.py` | Pygments tokens → coloured fragments | no |
+| `i18n.py` | Document-facing strings, per language | no |
 
 ---
 
-## 4. Stufe 1: Markdown → HTML
+## 4. Stage 1: Markdown → HTML
 
-### 4.1 Front Matter vor dem Parser
+### 4.1 Front matter before the parser
 
-Der YAML-Block wird in `parser.split_front_matter` per Regex abgetrennt, **bevor**
-markdown-it den Text sieht. Das hat einen konkreten Grund: Die Sprache aus dem
-Front Matter bestimmt, welche Anführungszeichen der Typograf einsetzt. Würde man
-das Front Matter erst nach dem Parsen auswerten, stünden die Zeichen schon fest.
+The YAML block is stripped by a regex in `parser.split_front_matter` **before**
+markdown-it sees the text. There is a concrete reason: the language from the
+front matter determines which quotation marks the typographer inserts. Reading
+the front matter only after parsing would leave those characters already decided.
 
-`mdit_py_plugins.front_matter` ist trotzdem aktiv — als Netz für Dateien, deren
-Block das Regex nicht trifft. Dann verschluckt das Plugin ihn wenigstens, statt
-ihn als Text auszugeben.
+`mdit_py_plugins.front_matter` is still enabled — as a safety net for files whose
+block the regex misses. The plugin at least swallows it rather than emitting it
+as text.
 
-Ohne PyYAML fällt `_parse_yaml` auf ein Minimalverfahren für `schlüssel: wert`
-zurück. Ungültiges YAML wird geschluckt und liefert ein leeres Dictionary — ein
-Tippfehler in den Metadaten darf die Konvertierung nicht verhindern.
+Without PyYAML, `_parse_yaml` falls back to a minimal `key: value` reader.
+Invalid YAML is swallowed and yields an empty dictionary — a typo in the metadata
+must not stop the conversion.
 
-### 4.2 Seitenumbruch-Marker
+### 4.2 Page-break markers
 
-Drei Schreibweisen (`<!-- pagebreak -->`, `\newpage`, `{{pagebreak}}`, jeweils
-mit Varianten) werden vor dem Parsen zu `<div class="md2word-pagebreak"></div>`.
-Der Umweg über HTML ist der einfachste Weg, ein eigenes Konstrukt durch
-markdown-it zu schleusen, ohne einen eigenen Block-Parser zu schreiben.
+Three spellings (`<!-- pagebreak -->`, `\newpage`, `{{pagebreak}}`, each with
+variants) are turned into `<div class="md2word-pagebreak"></div>` before parsing.
+Going through HTML is the simplest way to smuggle a custom construct past
+markdown-it without writing a block parser.
 
-### 4.3 Die Preset-Falle
+### 4.3 The preset trap
 
 ```python
 MarkdownIt("commonmark", {"html": True, "linkify": True, "typographer": True})
     .enable(["table", "strikethrough", "linkify", "replacements", "smartquotes"])
 ```
 
-Das `typographer: True` allein bewirkt **nichts**, wenn das Preset
-`commonmark` geladen ist: Dieses Preset schaltet die Core-Regeln
-`replacements` und `smartquotes` explizit ab. Sie müssen zusätzlich per
-`.enable()` reaktiviert werden. Das ist während der Entwicklung aufgefallen,
-weil ein Test typografische Anführungszeichen erwartete und keine bekam.
+`typographer: True` on its own does **nothing** when the `commonmark` preset is
+loaded: that preset explicitly disables the core rules `replacements` and
+`smartquotes`. They have to be re-enabled with `.enable()`. This surfaced during
+development because a test expected typographic quotation marks and got none.
 
-Aktivierte Erweiterungen: Tabellen, Durchstreichung, Autolinks, Front Matter,
-Fußnoten, Definitionslisten, Aufgabenlisten, Dollar-Mathematik.
+Enabled extensions: tables, strikethrough, autolinks, front matter, footnotes,
+definition lists, task lists, dollar math.
 
-### 4.4 Anführungszeichen nach Sprache
+### 4.4 Quotation marks by language
 
-`parser.quotes_for` bildet den Sprachcode auf die `quotes`-Option von
-markdown-it ab — vier Einträge: öffnend und schließend für die äußere, dann für
-die innere Ebene.
+`parser.quotes_for` maps the language code onto markdown-it's `quotes` option —
+four entries: opening and closing for the outer level, then for the inner one.
 
-| Sprachgruppe | Zeichen |
-|:-------------|:--------|
+| Language group | Characters |
+|:---------------|:-----------|
 | `de`, `cs`, `sk`, `sl`, `hr`, `hu`, `pl`, `ro`, `lt`, `et`, `is` | `„…“ ‚…‘` |
-| `fr` | `« … »` mit schmalem geschütztem Leerzeichen |
+| `fr` | `« … »` with a narrow no-break space |
 | `ru`, `es`, `it`, `pt`, `no`, `el`, `tr`, `uk`, `be` | `«…» ‹…›` |
-| alle übrigen | `“…” ‘…’` |
+| everything else | `“…” ‘…’` |
 
-**Warum ein Tupel und kein String.** markdown-it greift über den Index zu:
-`quotes[0]` bis `quotes[3]`. Bei einem String sind das einzelne Zeichen — ein zu
-langer String liefert deshalb stillschweigend die falschen. Genau das war
-zwischenzeitlich der Fall: Der Eintrag `"«  »‹›"` sollte Guillemets
-mit schmalem Abstand ergeben, hatte aber sechs Zeichen, sodass als schließendes
-Anführungszeichen ein Leerzeichen herauskam — aus `« Bonjour »` wurde
-`« Bonjour .`. Mit Tupeln lassen sich mehrzeichige Einträge sauber ausdrücken,
-und `test_every_quote_set_has_exactly_four_entries` sichert die Länge ab.
+**Why a tuple and not a string.** markdown-it indexes into the value:
+`quotes[0]` through `quotes[3]`. With a string those are single characters, so an
+over-long string silently supplies the wrong ones. That is exactly what happened
+here for a while: the entry `"«  »‹›"` was meant to produce guillemets with a
+narrow space, but had six characters, so the *closing* quotation mark came out as
+a space — `« Bonjour »` became `« Bonjour .`. Tuples express multi-character
+entries cleanly, and `test_every_quote_set_has_exactly_four_entries` guards the
+length.
 
-Die Zeichen stehen im Quelltext als Escape-Sequenzen (`" "`), nicht als
-Literale. Unsichtbare Zeichen im Code überleben Umformatierungen nicht
-zuverlässig — auch das ist während der Entwicklung passiert und hat die
-Leerraumbehandlung stillschweigend lahmgelegt.
+The characters appear in the source as escape sequences (`" "`), not as
+literals. Invisible characters in code do not survive reformatting reliably —
+that happened too, and silently disabled the whitespace handling.
 
 ### 4.5 `--strip-html`
 
-Naheliegend wäre `html: False` gewesen — falsch. Dann behandelt markdown-it
-rohes HTML nicht als eigenen Token, sondern als gewöhnlichen Text und gibt ihn
-maskiert aus: `&lt;div&gt;verworfen&lt;/div&gt;` erscheint sichtbar im
-Dokument. Genau das Gegenteil der Absicht.
+The obvious approach would have been `html: False` — and it is wrong. markdown-it
+then treats raw HTML not as its own token but as ordinary text and emits it
+escaped: `&lt;div&gt;dropped&lt;/div&gt;` shows up visibly in the document.
+Precisely the opposite of the intent.
 
-Richtig ist, `html: True` zu lassen — damit die Tokens `html_block` und
-`html_inline` überhaupt entstehen — und ihre Ausgabe zu unterdrücken:
+The correct way is to leave `html: True` — so that the `html_block` and
+`html_inline` tokens exist at all — and suppress their output:
 
 ```python
 md.add_render_rule("html_block", lambda *args: "")
@@ -236,48 +231,48 @@ md.add_render_rule("html_inline", lambda *args: "")
 
 ---
 
-## 5. Stufe 2: HTML-Baum → Word-Dokument
+## 5. Stage 2: HTML tree → Word document
 
-### 5.1 Warum überhaupt der Umweg über HTML?
+### 5.1 Why go through HTML at all?
 
-markdown-it liefert einen **flachen Token-Strom** mit `*_open`/`*_close`-Paaren.
-Wer daraus direkt Word-Absätze baut, muss die Verschachtelung selbst als Stack
-mitführen — für jede Kombination aus Liste, Zitat, Tabelle und Codeblock. Ein
-Elementbaum bringt diese Struktur bereits mit; eine Rekursion über die Kinder
-genügt, und `lxml` repariert nebenbei unvollständiges HTML.
+markdown-it produces a **flat token stream** with `*_open`/`*_close` pairs.
+Building Word paragraphs straight from it means tracking the nesting yourself in
+a stack — for every combination of list, quote, table and code block. An element
+tree carries that structure already; recursing over the children is enough, and
+`lxml` repairs incomplete HTML along the way.
 
-Der Preis ist eine zusätzliche Serialisierung nach HTML und ein erneutes Parsen.
-Bei typischen Dokumentgrößen ist das nicht messbar; die gesamte Konvertierung des
-Beispieldokuments dauert unter einer Zehntelsekunde.
+The price is one extra serialisation to HTML and a re-parse. At typical document
+sizes that is not measurable; converting the whole sample document takes under a
+tenth of a second.
 
-### 5.2 Zwei Vorläufe vor dem eigentlichen Rendern
+### 5.2 Two passes before rendering proper
 
-**`_collect_footnotes`** schneidet den `<section class="footnotes">`-Block, den
-markdown-it ans Dokumentende hängt, samt vorangehendem `<hr>` heraus und legt
-die `<li>`-Elemente in einem Dictionary ab. Nötig, weil Word-Fußnoten *an der
-Verweisstelle* erzeugt werden müssen, nicht am Ende. Die Rückverweispfeile
-(`↩︎`) werden dabei entfernt — im Word-Dokument navigiert man per Doppelklick.
+**`_collect_footnotes`** cuts out the `<section class="footnotes">` block that
+markdown-it appends at the end, along with the preceding `<hr>`, and stores the
+`<li>` elements in a dictionary. Necessary because Word footnotes must be created
+*at the reference site*, not at the end. The back-reference arrows (`↩︎`) are
+removed in the process — in a Word document you navigate by double-click.
 
-**`_prescan_headings`** vergibt für jede Überschrift eine Anker-ID nach
-GitHub-Art (`dx.slugify`) und hinterlegt sie als Attribut am Element. Der
-Vorlauf ist zwingend: Ein Verweis `[Text](#kapitel-3)` kann vor der zugehörigen
-Überschrift stehen, und beim Anlegen des Hyperlinks muss bereits feststehen, ob
-das Ziel existiert. Bei doppelten Überschriften hängt `slugify` `-1`, `-2` an.
+**`_prescan_headings`** assigns every heading a GitHub-style anchor ID
+(`dx.slugify`) and stores it as an attribute on the element. The pass is
+mandatory: a link `[text](#chapter-3)` can appear before its heading, and by the
+time the hyperlink is created it must already be known whether the target
+exists. For duplicate headings, `slugify` appends `-1`, `-2` and so on.
 
-### 5.3 Block- und Inline-Ebene
+### 5.3 Block and inline levels
 
-Der Renderer arbeitet auf zwei Ebenen, die sich an HTML orientieren:
+The renderer works on two levels mirroring HTML:
 
-- **Blockebene** (`_render_block`) erzeugt Absätze und Tabellen. Ein Dictionary
-  bildet Tagnamen auf Methoden ab; unbekannte Blöcke landen bei
-  `_block_container`, das die Hülle verwirft und den Inhalt weiterverarbeitet.
-- **Inlineebene** (`_render_inline_node`) erzeugt Runs innerhalb eines Absatzes.
+- **Block level** (`_render_block`) creates paragraphs and tables. A dictionary
+  maps tag names to methods; unknown blocks land in `_block_container`, which
+  discards the wrapper and processes the content.
+- **Inline level** (`_render_inline_node`) creates runs within a paragraph.
 
-Trifft die Blockebene auf ein Inline-Tag, öffnet sie einen Absatz. Trifft die
-Inlineebene auf ein Blockelement — was bei kaputtem HTML vorkommt — wird dessen
-Text übernommen, statt einen ungültigen verschachtelten Absatz zu bauen.
+When the block level meets an inline tag, it opens a paragraph. When the inline
+level meets a block element — which happens with malformed HTML — its text is
+taken over rather than building an invalid nested paragraph.
 
-### 5.4 `InlineFormat`: Formatierung wächst beim Abstieg
+### 5.4 `InlineFormat`: formatting accumulates on the way down
 
 ```python
 @dataclass
@@ -286,531 +281,553 @@ class InlineFormat:
     small_caps, color, highlight, font, size, link
 ```
 
-Ein unveränderliches Wertobjekt, das beim Abstieg durch `<strong><em><code>`
-per `merged()` kopiert und erweitert wird. Erst wenn Text erreicht ist, entsteht
-ein Run mit den gesammelten Eigenschaften. Dadurch ergibt sich beliebig tiefe
-Verschachtelung von selbst, ohne Stack-Verwaltung.
+An immutable value object that is copied and extended via `merged()` while
+descending through `<strong><em><code>`. Only when text is reached does a run
+appear, carrying the accumulated properties. Arbitrarily deep nesting therefore
+falls out for free, with no stack to manage.
 
-### 5.5 `RenderState`: wohin geschrieben wird
+### 5.5 `RenderState`: where writing happens
 
 ```python
 @dataclass
 class RenderState:
-    container      # Document, _Cell oder None (Fußnote)
-    list_stack     # offene Listen, bestimmt die Ebene
-    quote_depth    # Verschachtelungstiefe von Zitaten
-    indent_mm      # zusätzlicher Einzug
+    container      # Document, _Cell or None (footnote)
+    list_stack     # open lists, determines the level
+    quote_depth    # nesting depth of quotes
+    indent_mm      # additional indent
     in_footnote
 ```
 
-`container` ist der Schlüssel für Tabellenzellen: Sowohl `Document` als auch
-`_Cell` bieten `add_paragraph()` und `add_table()`. Der Renderer schreibt gegen
-diese gemeinsame Schnittstelle und funktioniert deshalb in Zellen genauso wie im
-Textkörper — inklusive Listen und Codeblöcken in Tabellen.
+`container` is the key to table cells: both `Document` and `_Cell` offer
+`add_paragraph()` and `add_table()`. The renderer writes against that shared
+interface and therefore works inside cells exactly as it does in the body —
+including lists and code blocks in tables.
 
-### 5.6 Nachbearbeiten statt vorausplanen
+### 5.6 Post-process rather than plan ahead
 
-Zwei Fälle lassen sich beim Abstieg nicht sauber lösen, weil erst hinterher
-feststeht, welche Absätze entstanden sind:
+Two cases cannot be solved cleanly on the way down, because which paragraphs
+were produced is only known afterwards:
 
-**Zitate.** `_block_quote` merkt sich den Absatzzählerstand, rendert die Kinder
-ganz normal und geht danach über alles Neue: Absatzformat auf *Quote*, Einzug
-nach Tiefe. Überschriften und Codeblöcke bleiben ausgenommen, damit sie ihr
-eigenes Format behalten. Absätze, die **bereits** das Zitatformat tragen,
-stammen aus einem inneren Zitat und werden übersprungen — sonst würde der äußere
-Durchlauf die Staffelung wieder einebnen. Genau dieser Fehler ist in der
-Entwicklung aufgetreten und wird von
-`test_nested_blockquote_indents_further` abgesichert.
+**Quotes.** `_block_quote` records the paragraph count, renders the children
+normally, then walks everything new: paragraph style to *Quote*, indent by depth.
+Headings and code blocks are exempt so they keep their own style. Paragraphs that
+**already** carry the quote style come from an inner quote and are skipped —
+otherwise the outer pass would flatten the staggering again. That exact bug
+occurred during development and is now guarded by
+`test_nested_blockquote_indents_further`.
 
-**Folgeblöcke in Listenpunkten.** Ein zweiter Absatz, eine Tabelle oder ein
-Codeblock innerhalb eines Listenpunkts darf kein Aufzählungszeichen bekommen,
-muss aber auf gleicher Höhe eingerückt sein. Auch hier: rendern, dann den Einzug
-der neuen Absätze nachziehen.
+**Follow-on blocks in list items.** A second paragraph, a table or a code block
+inside a list item must not get a bullet, but must line up with the item's
+indent. Same approach: render, then adjust the indent of the new paragraphs.
 
-Ein verwandter Fehler steckte im ersten Wurf von `_render_list_item`: Die
-Bedingung `if tag == "p" and not pending_blocks` schickte *jeden* Absatz eines
-„losen" Listenpunkts in den ersten Word-Absatz, solange noch kein Block
-zurückgestellt war — zwei Absätze klebten aneinander. Ein explizites
-`first_paragraph_used`-Flag löst das.
+A related bug lived in the first draft of `_render_list_item`: the condition
+`if tag == "p" and not pending_blocks` sent *every* paragraph of a "loose" list
+item into the first Word paragraph as long as no block had been deferred yet —
+two paragraphs ran together. An explicit `first_paragraph_used` flag fixes it.
 
 ---
 
-## 6. Die OOXML-Handarbeit
+## 6. The hand-written OOXML
 
-Alles in diesem Abschnitt liegt in `docxutil.py` und `styles.py`.
+Everything in this section lives in `docxutil.py` and `styles.py`.
 
-### 6.1 Formatvorlagen: `styleId` ist nicht der Name
+### 6.1 Styles: `styleId` is not the name
 
-Jede Formatvorlage hat zwei Bezeichner: die interne `w:styleId` und den
-sichtbaren `w:name`. Word zeigt den Namen in der Oberfläche und lokalisiert ihn
-(„Heading 1" wird zu „Überschrift 1"), verweist intern aber immer über die ID.
-python-docx' `document.styles["Name"]` sucht über den Namen und warnt seit
-Version 1.x bei ID-Zugriff.
+Every style has two identifiers: the internal `w:styleId` and the visible
+`w:name`. Word shows the name in its interface and localises it ("Heading 1"
+becomes "Überschrift 1" in German), but always references the ID internally.
+python-docx's `document.styles["Name"]` looks up by name and, since version 1.x,
+warns when accessed by ID.
 
-md2word arbeitet durchgängig mit IDs — sie sind stabil und
-sprachunabhängig — und umgeht die Warnung mit **`styles.StyleLookup`**, einem
-Dictionary `styleId → Style-Objekt`, das sich bei einem Fehlschlag einmal neu
-aufbaut.
+md2word works with IDs throughout — they are stable and language-independent —
+and sidesteps the warning with **`styles.StyleLookup`**, a `styleId → Style`
+dictionary that rebuilds itself once on a miss.
 
-Die gewählten IDs entsprechen denen aus **Pandocs Referenzdokument**:
+The chosen IDs match those in **Pandoc's reference document**:
 
-| Zweck | styleId | Herkunft |
-|:------|:--------|:---------|
-| Codeblock | `SourceCode` | Pandoc |
-| Code im Text | `VerbatimChar` | Pandoc |
-| Zitat | `Quote` | Word-Standard |
-| Bildunterschrift | `Caption` | Word-Standard |
-| Bildabsatz | `Figure` | Pandoc |
-| Trennlinie | `HorizontalRule` | Pandoc |
-| Definitionsliste | `DefinitionTerm`, `Definition` | Pandoc |
-| Tabellentext | `Compact` | Pandoc |
-| Titelseiten-Metazeile | `Author` | Pandoc |
+| Purpose | styleId | Origin |
+|:--------|:--------|:-------|
+| Code block | `SourceCode` | Pandoc |
+| Inline code | `VerbatimChar` | Pandoc |
+| Quote | `Quote` | Word built-in |
+| Caption | `Caption` | Word built-in |
+| Figure paragraph | `Figure` | Pandoc |
+| Horizontal rule | `HorizontalRule` | Pandoc |
+| Definition list | `DefinitionTerm`, `Definition` | Pandoc |
+| Table text | `Compact` | Pandoc |
+| Title-page metadata line | `Author` | Pandoc |
 
-Das kostet nichts und bringt zwei Dinge: Ein für Pandoc gebautes
-Referenzdokument funktioniert unverändert mit `--reference-doc`, und der Rückweg
-`docx → Markdown` erkennt Code, Zitate und Bildunterschriften wieder statt sie
-als formlosen Text auszugeben.
+This costs nothing and buys two things: a reference document built for Pandoc
+works unchanged with `--reference-doc`, and the return trip `docx → Markdown`
+recognises code, quotes and captions instead of emitting them as shapeless text.
 
-Beim Anlegen fehlender Vorlagen setzt `ensure_style` die `styleId` nach dem
-Erzeugen direkt am XML-Element und entfernt bei echten Word-Vorlagen das
-Attribut `w:customStyle`, damit Word sie als eingebaut behandelt.
+When creating missing styles, `ensure_style` sets the `styleId` directly on the
+XML element after creation and, for genuine Word styles, removes the
+`w:customStyle` attribute so Word treats them as built-in.
 
-#### `StyleBuilder`: Referenzvorlagen dürfen gewinnen
+#### `StyleBuilder`: reference documents win
 
-Ohne `--reference-doc` überschreibt md2word alle Formatvorlagen nach
-Konfiguration. Mit `--reference-doc` wäre das falsch — dann wäre die Vorlage
-sinnlos. `StyleBuilder.style()` liefert deshalb `None`, wenn die Vorlage schon
-existiert und respektiert werden soll; der Aufrufer lässt sie dann in Ruhe. Neue
-Vorlagen werden trotzdem ergänzt, sonst gäbe es kein Codeblock-Format.
+Without `--reference-doc`, md2word overwrites every style according to the
+configuration. With `--reference-doc` that would be wrong — the template would be
+pointless. `StyleBuilder.style()` therefore returns `None` when the style already
+exists and is to be respected; the caller then leaves it alone. New styles are
+still added, otherwise there would be no code-block style.
 
-Analog beim Seitenlayout: Es bleibt wie in der Vorlage, es sei denn,
-`--page-size`, `--landscape` oder ein `--margin` steht ausdrücklich auf der
-Kommandozeile. Dafür wird `config._explicit` ausgewertet (siehe [Abschnitt 7](#7-konfigurationsauflösung)).
+The page layout works the same way: it stays as it is in the template unless
+`--page-size`, `--landscape` or a `--margin` was given explicitly on the command
+line. That is what `config._explicit` is evaluated for (see
+[section 7](#7-resolving-configuration)).
 
-### 6.2 Listen: `numbering.xml` von Hand
+### 6.2 Lists: writing `numbering.xml` by hand
 
-Word trennt Listen in zwei Ebenen:
+Word splits lists into two layers:
 
-- **`w:abstractNum`** — das Aussehen: neun Ebenen mit Zeichen oder
-  Nummernformat, Einzug, Schrift.
-- **`w:num`** — eine *Instanz*, die auf ein `abstractNum` verweist. Absätze
-  referenzieren immer eine `numId`, nie das abstrakte Format.
+- **`w:abstractNum`** — the appearance: nine levels with bullet characters or
+  number formats, indents, fonts.
+- **`w:num`** — an *instance* referring to an `abstractNum`. Paragraphs always
+  reference a `numId`, never the abstract definition.
 
-Diese Trennung ist der Grund für eine wichtige Eigenschaft:
+That split is the reason for an important property:
 
-> **Jede Liste im Dokument bekommt eine eigene `w:num`-Instanz.**
+> **Every list in the document gets its own `w:num` instance.**
 
-Teilten sich zwei aufeinanderfolgende nummerierte Listen eine `numId`, würde
-Word die zweite bei 3 statt bei 1 fortsetzen. `NumberingRegistry.new_list()`
-legt darum pro Liste eine neue Instanz an — die abstrakten Definitionen (je eine
-für Punkte und Nummern) werden dagegen wiederverwendet. Abgesichert durch
+If two consecutive numbered lists shared a `numId`, Word would continue the
+second one at 3 instead of restarting at 1. `NumberingRegistry.new_list()`
+therefore creates a fresh instance per list — while the abstract definitions (one
+for bullets, one for numbers) are reused. Guarded by
 `test_ordered_lists_restart`.
 
-Weitere Details:
+Further details:
 
-- **Schemareihenfolge.** Alle `w:abstractNum` müssen vor allen `w:num` stehen.
-  `_insert_abstract` hängt neue Definitionen deshalb hinter die letzte
-  vorhandene, nicht ans Ende. Die Testsuite prüft die Reihenfolge eigens, weil
-  Word sonst die Reparatur anbietet.
-- **Startwerte.** `5. fünf` erzeugt ein `w:lvlOverride` mit `w:startOverride`
-  auf der Instanz — das abstrakte Format bleibt unberührt.
-- **Ebenengrenze.** Word kennt `w:ilvl` 0 bis 8. `apply_numbering` begrenzt
-  darauf (`MAX_LIST_LEVEL`); tiefere Verschachtelungen laufen auf Ebene 8
-  zusammen, statt eine ungültige Datei zu erzeugen.
-- **Einzug.** `w:left = 720 × (Ebene + 1)` Twips bei `w:hanging = 360` —
-  das entspricht Words eigener Staffelung von 1,27 cm je Ebene.
-- **Zeichen.** Ebenen wechseln zyklisch zwischen `` (Symbol), `o`
-  (Courier New) und `` (Wingdings), nummerierte zwischen `decimal`,
-  `lowerLetter` und `lowerRoman`.
+- **Schema order.** All `w:abstractNum` must precede all `w:num`.
+  `_insert_abstract` therefore places new definitions after the last existing
+  one, not at the end. The test suite checks the order specifically, because Word
+  otherwise offers to repair the file.
+- **Start values.** `5. five` produces a `w:lvlOverride` with `w:startOverride`
+  on the instance — the abstract definition stays untouched.
+- **Level limit.** Word knows `w:ilvl` 0 through 8. `apply_numbering` clamps to
+  that (`MAX_LIST_LEVEL`); deeper nesting collapses onto level 8 rather than
+  producing an invalid file.
+- **Indent.** `w:left = 720 × (level + 1)` twips with `w:hanging = 360` — matching
+  Word's own staggering of 1.27 cm per level.
+- **Bullets.** Levels cycle through `` (Symbol), `o` (Courier New) and ``
+  (Wingdings); numbered levels through `decimal`, `lowerLetter` and `lowerRoman`.
 
-Für nummerierte Überschriften baut `enable_heading_numbering` eine eigene
-mehrstufige Definition, deren Ebenen per `w:pStyle` an `Heading1`…`HeadingN`
-gebunden sind, und trägt die `numId` zusätzlich in die Formatvorlagen ein. Die
-Nummern gehören dann zum Format, nicht zum einzelnen Absatz — Word zählt selbst
-und aktualisiert beim Einfügen neuer Kapitel.
+For numbered headings, `enable_heading_numbering` builds a separate multilevel
+definition whose levels are bound to `Heading1`…`HeadingN` via `w:pStyle`, and
+writes the `numId` into the styles as well. The numbers then belong to the style,
+not to the individual paragraph — Word counts by itself and renumbers when new
+chapters are inserted.
 
-### 6.3 Echte Fußnoten
+### 6.3 Real footnotes
 
-Der aufwendigste Teil. python-docx kennt keine Fußnoten; die Vorlage enthält
-nicht einmal einen `footnotes.xml`-Part. `FootnoteStore` legt ihn selbst an:
+The most involved part. python-docx has no notion of footnotes; its template
+does not even contain a `footnotes.xml` part. `FootnoteStore` creates one:
 
-**Schritt 1 — Part erzeugen.** Ein `XmlPart` mit Pfad `/word/footnotes.xml` und
-dem Content-Type
+**Step 1 — create the part.** An `XmlPart` at `/word/footnotes.xml` with content
+type
 `application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml`,
-danach `document_part.relate_to(part, RT.FOOTNOTES)`. Der Eintrag in
-`[Content_Types].xml` entsteht beim Speichern automatisch aus dem `content_type`
-des Parts — ein Grund, `XmlPart` zu verwenden statt Rohbytes.
+followed by `document_part.relate_to(part, RT.FOOTNOTES)`. The entry in
+`[Content_Types].xml` appears automatically on save, derived from the part's
+`content_type` — one reason to use `XmlPart` rather than raw bytes.
 
-**Schritt 2 — Pflichteinträge.** Word erwartet zwei besondere Fußnoten vor allen
-echten: `w:type="separator"` mit `w:id="-1"` (die Trennlinie über dem
-Fußnotenbereich) und `w:type="continuationSeparator"` mit `w:id="0"` (die Linie
-bei Fortsetzung auf der Folgeseite). Fehlen sie, öffnet Word die Datei zwar,
-zeigt aber keine Trennlinie. Echte Fußnoten beginnen bei `w:id="1"`.
+**Step 2 — the mandatory entries.** Word expects two special footnotes ahead of
+the real ones: `w:type="separator"` with `w:id="-1"` (the rule above the footnote
+area) and `w:type="continuationSeparator"` with `w:id="0"` (the rule when a
+footnote continues on the next page). Without them Word still opens the file, but
+shows no separator. Real footnotes start at `w:id="1"`.
 
-**Schritt 3 — `settings.xml`.** Ein `w:footnotePr` mit Verweisen auf die IDs
-`-1` und `0`, eingefügt an Position 0, weil `w:footnotePr` in der
-Elementreihenfolge von `w:settings` weit vorn steht.
+**Step 3 — `settings.xml`.** A `w:footnotePr` referencing IDs `-1` and `0`,
+inserted at position 0, because `w:footnotePr` sits near the front of
+`w:settings`'s element order.
 
-**Schritt 4 — Verweis im Text.** Ein Run mit dem Zeichenformat
-`FootnoteReference` (hochgestellt) und einem `w:footnoteReference w:id="n"`.
+**Step 4 — the reference in the text.** A run with the `FootnoteReference`
+character style (superscript) containing `w:footnoteReference w:id="n"`.
 
-**Schritt 5 — Inhalt.** Der erste Absatz jeder Fußnote beginnt mit einem Run,
-der `w:footnoteRef` enthält — das Platzhalterelement für die automatisch
-vergebene Nummer. Word nummeriert selbst; im XML steht nirgends eine Ziffer.
+**Step 5 — the content.** The first paragraph of each footnote begins with a run
+containing `w:footnoteRef` — the placeholder for the automatically assigned
+number. Word numbers them itself; no digit appears anywhere in the XML.
 
-**Der Trick beim Befüllen.** Der Renderer schreibt Inline-Inhalt über
-`docx.text.paragraph.Paragraph`-Objekte. Für Fußnoten wird ein solches Objekt um
-ein rohes `w:p` im Fußnoten-Part gelegt:
+**The trick when filling them.** The renderer writes inline content through
+`docx.text.paragraph.Paragraph` objects. For footnotes, such an object is wrapped
+around a raw `w:p` inside the footnotes part:
 
 ```python
 target = Paragraph(first_p, self._footnotes._part)
 ```
 
-Der zweite Parameter ist das Elternobjekt, über das `paragraph.part` aufgelöst
-wird. Da `XmlPart.part` sich selbst zurückgibt, landen Hyperlink-Relationships
-aus Fußnoten korrekt in `word/_rels/footnotes.xml.rels` statt fälschlich im
-Hauptdokument. Damit funktioniert der komplette Inline-Renderer unverändert
-innerhalb von Fußnoten — samt Formatierung, Links und Code.
+The second parameter is the parent through which `paragraph.part` is resolved.
+Since `XmlPart.part` returns itself, hyperlink relationships created inside
+footnotes correctly land in `word/_rels/footnotes.xml.rels` rather than
+mistakenly in the main document. The complete inline renderer therefore works
+unchanged inside footnotes — formatting, links and code included.
 
-Schlägt der Aufbau des Parts fehl, fällt der Renderer automatisch auf Endnoten
-zurück und meldet das als Hinweis.
+If building the part fails, the renderer falls back to endnotes automatically and
+reports it as a warning.
 
-### 6.4 Feldfunktionen
+### 6.4 Field codes
 
-Inhaltsverzeichnis und Seitenzahlen sind keine Texte, sondern **Felder**, die
-Word selbst berechnet. Ein Feld besteht aus fünf aufeinanderfolgenden Runs:
+The table of contents and page numbers are not text but **fields** that Word
+computes itself. A field consists of five consecutive runs:
 
 ```xml
 <w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>
 <w:r><w:instrText xml:space="preserve"> TOC \o "1-3" \h \z \u </w:instrText></w:r>
 <w:r><w:fldChar w:fldCharType="separate"/></w:r>
-<w:r><w:t>Platzhaltertext</w:t></w:r>
+<w:r><w:t>placeholder text</w:t></w:r>
 <w:r><w:fldChar w:fldCharType="end"/></w:r>
 ```
 
-Zwischen `separate` und `end` steht das zwischengespeicherte Ergebnis — was
-Word anzeigt, bevor es neu rechnet. md2word setzt dort einen Hinweistext, damit
-niemand vor einem leeren Verzeichnis steht.
+Between `separate` and `end` sits the cached result — what Word displays before
+recomputing. md2word puts an instruction there so nobody faces a blank table of
+contents.
 
-`w:dirty="true"` markiert das Feld als veraltet. Zusätzlich setzt
-`force_field_update_on_open` ein `<w:updateFields w:val="true"/>` in
-`settings.xml` — das ist der Grund für Words Nachfrage beim Öffnen.
+`w:dirty="true"` marks the field as stale. In addition,
+`force_field_update_on_open` writes `<w:updateFields w:val="true"/>` into
+`settings.xml` — that is what makes Word ask on open.
 
-Verwendete Feldanweisungen: `TOC \o "1-N" \h \z \u` (Verzeichnis über die
-Ebenen 1–N, als Hyperlinks, ohne Seitenzahlen in der Webansicht, mit
-Gliederungsebenen), `PAGE` und `NUMPAGES`.
+Field instructions used: `TOC \o "1-N" \h \z \u` (contents over levels 1–N, as
+hyperlinks, no page numbers in web view, using outline levels), `PAGE` and
+`NUMPAGES`.
 
-Weil `begin` und `end` paarig sein müssen, prüft die Testsuite die Anzahl über
-`document.xml` **und** alle Kopf-/Fußzeilen-Parts.
+Because `begin` and `end` have to be paired, the test suite counts them across
+`document.xml` **and** every header and footer part.
 
-### 6.5 Hyperlinks und Lesezeichen
+### 6.5 Hyperlinks and bookmarks
 
-**Externe Links** brauchen eine Relationship mit `TargetMode="External"`.
-`paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)` liefert die
-`r:id`, die in ein `w:hyperlink`-Element wandert.
+**External links** need a relationship with `TargetMode="External"`.
+`paragraph.part.relate_to(url, RT.HYPERLINK, is_external=True)` returns the
+`r:id` that goes into a `w:hyperlink` element.
 
-**Interne Links** brauchen keine Relationship, sondern
-`<w:hyperlink w:anchor="ziel">` und ein passendes Lesezeichen. Für die
-Lesezeichennamen gelten Word-Regeln, die `sanitize_bookmark` durchsetzt:
-höchstens 40 Zeichen, nur Buchstaben, Ziffern und Unterstriche, kein
-führender Ziffernbeginn. Aus dem Anker `mein-abschnitt` wird deshalb das
-Lesezeichen `mein_abschnitt` — beide Seiten laufen durch dieselbe Funktion,
-daher passen sie immer zusammen.
+**Internal links** need no relationship, just `<w:hyperlink w:anchor="target">`
+and a matching bookmark. Bookmark names follow Word's rules, enforced by
+`sanitize_bookmark`: at most 40 characters, only letters, digits and
+underscores, never starting with a digit. The anchor `my-section` therefore
+becomes the bookmark `my_section` — both sides go through the same function, so
+they always agree.
 
-**Die Reihenfolge beim Bauen** ist heikel: `w:hyperlink` umschließt die Runs,
-aber python-docx' `add_run()` hängt immer an den Absatz an. Der Renderer merkt
-sich daher die Run-Anzahl vor dem Inhalt, rendert normal und verschiebt die neu
-entstandenen Runs anschließend per `move_run_into` in das Hyperlink-Element.
-Dadurch funktioniert beliebige Formatierung im Linktext.
+**Build order is delicate:** `w:hyperlink` wraps the runs, but python-docx's
+`add_run()` always appends to the paragraph. The renderer therefore records the
+run count beforehand, renders normally, and afterwards moves the newly created
+runs into the hyperlink element with `move_run_into`. Arbitrary formatting inside
+link text works as a result.
 
-Zeigt ein interner Verweis ins Leere, wird der Text unverlinkt ausgegeben und
-eine Warnung gesammelt — kein Abbruch.
+If an internal link points nowhere, the text is emitted unlinked and a warning is
+collected — no abort.
 
-### 6.6 Codeblöcke
+### 6.6 Code blocks
 
-Word kennt keinen mehrzeiligen Absatz mit erhaltenen Umbrüchen, wie ihn `<pre>`
-darstellt. Ein Codeblock wird deshalb zu **einem Absatz je Zeile** mit dem
-Format `SourceCode` (Abstand 0, einfacher Zeilenabstand).
+Word has no multi-line paragraph that preserves line breaks the way `<pre>` does.
+A code block therefore becomes **one paragraph per line**, styled `SourceCode`
+(zero spacing, single line spacing).
 
-Das erzeugt ein Randproblem: Ein Rahmen um jeden Absatz ergäbe Trennstriche
-zwischen den Zeilen. `_emit_code_block` setzt Rahmen daher gezielt — links und
-rechts an allen Absätzen, oben nur am ersten, unten nur am letzten. Optisch
-entsteht ein durchgehender Kasten. Geprüft von
+That creates a side problem: a border around every paragraph would draw rules
+between the lines. `_emit_code_block` therefore places borders selectively — left
+and right on all paragraphs, top only on the first, bottom only on the last.
+Visually a continuous box results. Verified by
 `test_code_block_outer_borders_only`.
 
-Die Syntaxhervorhebung kommt von Pygments als Folge von `(Token, Text)`-Paaren,
-aus denen `highlight.py` Fragmente mit Farbe und Schnitt macht. Ein Fragment
-kann Zeilenumbrüche enthalten, ein Word-Run darf das nicht — `_fragments_by_line`
-verteilt die Fragmente daher auf Zeilen und schneidet an `\n`.
+Syntax highlighting arrives from Pygments as a sequence of `(token, text)` pairs,
+from which `highlight.py` builds fragments carrying colour and weight. A fragment
+may contain line breaks; a Word run may not — so `_fragments_by_line` distributes
+the fragments across lines, splitting at `\n`.
 
-Ist die Sprache unbekannt oder Pygments nicht installiert, entsteht ein einziges
-Fragment ohne Farbe. Kein Fehler, nur kein Farbverlauf.
+If the language is unknown or Pygments is missing, a single uncoloured fragment
+results. Not an error, just no colour.
 
-### 6.7 Tabellen
+### 6.7 Tables
 
-**Spaltenbreiten** rechnet `_column_widths` selbst aus, statt Word entscheiden
-zu lassen — Words Automatik dehnt Tabellen gern über den Satzspiegel hinaus. Die
-Heuristik:
+**Column widths** are computed by `_column_widths` rather than left to Word,
+whose automatic sizing happily pushes tables past the text area. The heuristic:
 
-1. Je Spalte die längste vorkommende Zellenlänge ermitteln, bei 60 Zeichen
-   gekappt (verhindert, dass eine Fließtextspalte alles schluckt).
-2. Die verfügbare Textbreite proportional zu diesen Gewichten verteilen.
-3. Jede Spalte auf 45 % bis 220 % der Durchschnittsbreite begrenzen — damit
-   bleiben schmale Spalten lesbar und breite beherrschbar.
-4. Das Ergebnis wieder auf die Textbreite normieren, damit die Summe exakt passt.
+1. Per column, find the longest cell content, capped at 60 characters (keeps a
+   prose column from swallowing everything).
+2. Distribute the available text width proportionally to those weights.
+3. Clamp each column to between 45 % and 220 % of the average width — narrow
+   columns stay readable, wide ones stay manageable.
+4. Re-normalise to the text width so the total fits exactly.
 
-Dazu `w:tblLayout w:type="fixed"`, sonst ignoriert Word die Vorgaben.
-`test_wide_table_stays_within_page` prüft mit zwölf Spalten, dass die Summe
-unter dem Satzspiegel bleibt.
+Plus `w:tblLayout w:type="fixed"`, without which Word ignores the values.
+`test_wide_table_stays_within_page` checks with twelve columns that the total
+stays inside the text area.
 
-Kopfzeilen bekommen `w:tblHeader` (Wiederholung auf jeder Seite), alle Zeilen
-`w:cantSplit` (kein Umbruch mitten in der Zeile). Die Spaltenausrichtung aus
-`|:--|--:|` steht als `style="text-align:…"` am `<td>` und wird auf die Absätze
-der Zelle übertragen.
+Header rows get `w:tblHeader` (repeat on every page); all rows get `w:cantSplit`
+(no break mid-row). Column alignment from `|:--|--:|` arrives as
+`style="text-align:…"` on the `<td>` and is transferred to the cell's paragraphs.
 
-Nach jeder Tabelle folgt ein leerer Absatz. Ohne ihn verschmelzen zwei direkt
-aufeinanderfolgende Tabellen in Word zu einer einzigen.
+An empty paragraph follows every table. Without it, two directly consecutive
+tables merge into one in Word.
 
-### 6.8 Bilder
+### 6.8 Images
 
-`images.load_image` vereinheitlicht drei Quellen — lokale Pfade (relativ zum
-Verzeichnis der Markdown-Datei), `data:`-URIs und `http(s)`-Adressen — zu einem
-Byte-Strom. SVG wird erkannt (Endung oder Inhalt) und, falls `cairosvg`
-vorhanden ist, in PNG umgewandelt.
+`images.load_image` unifies three sources — local paths (relative to the Markdown
+file's directory), `data:` URIs and `http(s)` addresses — into a byte stream. SVG
+is detected (by extension or content) and, if `cairosvg` is available, converted
+to PNG.
 
-Die native Größe liefert `docx.image.image.Image.from_blob`, das die DPI-Angabe
-der Datei berücksichtigt; scheitert das, springt Pillow mit 96 dpi als Annahme
-ein. Verkleinert wird nur, wenn das Bild breiter als der Satzspiegel ist —
-kleine Bilder behalten ihre Größe, statt aufgeblasen zu werden.
+Native dimensions come from `docx.image.image.Image.from_blob`, which honours the
+file's DPI metadata; if that fails, Pillow steps in assuming 96 dpi. Images are
+only scaled *down*, and only when wider than the text area — small images keep
+their size instead of being blown up.
 
-Jeder Fehler beim Laden ist nicht fatal: Es gibt einen kursiven Platzhalter
-`[Bild: Alt-Text]` und eine gesammelte Warnung.
+Any loading failure is non-fatal: an italic `[Image: alt text]` placeholder
+appears and a warning is collected.
 
-### 6.9 Leerraum
+### 6.9 Whitespace
 
-HTML und Word haben verschiedene Vorstellungen davon, was Leerraum bedeutet. In
-HTML sind Zeilenumbruch und Einrückung nur Formatierung der Quelldatei; Word
-zeigt jedes Zeichen. Drei Funktionen regeln die Übersetzung:
+HTML and Word disagree about what whitespace means. In HTML, line breaks and
+indentation are merely source formatting; Word displays every character. Three
+functions govern the translation:
 
-| Funktion | Verhalten | Verwendung |
-|:---------|:----------|:-----------|
-| `_collapse_soft` | Leerraumfolgen → ein Leerzeichen, Ränder bleiben | normale Textknoten |
-| `_collapse` | zusätzlich beidseitig strippen | Attribute, Fallback-Texte |
-| `_collapse_leading` | zusätzlich links strippen | Textbeginn eines Listenpunkts |
+| Function | Behaviour | Used for |
+|:---------|:----------|:---------|
+| `_collapse_soft` | runs of whitespace → one space, edges preserved | ordinary text nodes |
+| `_collapse` | additionally strips both ends | attributes, fallback texts |
+| `_collapse_leading` | additionally strips the left end | text at the start of a list item |
 
-Im Code-Kontext (`InlineFormat.code`) wird nichts angetastet — dort ist Leerraum
-Inhalt.
+Inside code context (`InlineFormat.code`) nothing is touched — there, whitespace
+is content.
 
-**Geschützte Leerzeichen sind ausgenommen.** Naheliegend wäre `re.sub(r"\s+", " ", …)`
-gewesen — und falsch: Pythons `\s` trifft auch U+00A0 (geschütztes
-Leerzeichen), U+202F (schmales geschütztes) und U+2007 (Ziffernbreite). Aus
-`10&nbsp;kg` würde `10 kg` mit gewöhnlichem Leerzeichen, der Umbruchschutz wäre
-weg — und die französischen Guillemets verlören ihren Abstand gleich mit.
-Browser kollabieren `&nbsp;` ebenfalls nicht.
+**Non-breaking spaces are exempt.** The obvious `re.sub(r"\s+", " ", …)` would be
+wrong: Python's `\s` also matches U+00A0 (no-break space), U+202F (narrow
+no-break) and U+2007 (figure space). `10&nbsp;kg` would become `10 kg` with an
+ordinary space, losing the break protection — and the French guillemets would
+lose their spacing along with it. Browsers do not collapse `&nbsp;` either.
 
-Die Muster schließen diese Zeichen deshalb aus:
+The patterns therefore exclude those characters:
 
 ```python
 PROTECTED_SPACES = "   "
-_COLLAPSIBLE = re.compile(rf"[^\S{PROTECTED_SPACES}]+")   # Leerraum außer den geschützten
+_COLLAPSIBLE = re.compile(rf"[^\S{PROTECTED_SPACES}]+")   # whitespace except the protected kind
 ```
 
-Am Ende läuft `docxutil.trim_paragraph_edges` über alle Absätze in
-`document.xml` und im Fußnoten-Part und entfernt gewöhnlichen Leerraum am Anfang
-des ersten und am Ende des letzten `w:t` — geschützte Leerzeichen bleiben auch
-dort stehen, wer sie schreibt, meint sie. Codeblöcke sind ausgenommen. Das
-Verfahren setzt bei Bedarf `xml:space="preserve"` und entfernt das Attribut,
-wo es überflüssig geworden ist.
+Finally, `docxutil.trim_paragraph_edges` walks every paragraph in `document.xml`
+and in the footnotes part and removes ordinary whitespace from the start of the
+first and the end of the last `w:t` — protected spaces stay even there; whoever
+writes one means it. Code blocks are exempt. The routine sets
+`xml:space="preserve"` where needed and removes the attribute where it has become
+redundant.
 
-Ohne diesen Durchlauf enden Absätze sichtbar mit einem Leerzeichen, weil
-HTML-Zeilenumbrüche als solches ankommen.
+Without this pass, paragraphs end with a visible space, because HTML line breaks
+arrive as one.
+
+### 6.10 Two kinds of language
+
+md2word emits text in two directions, and they follow different rules.
+
+**Terminal output** — help texts, errors, warnings — is always English. It is
+addressed to whoever runs the command, in the lingua franca of the shell.
+
+**Strings written into the document** follow `--lang`. A German document should
+say "Inhaltsverzeichnis" even when the tool reports its progress in English.
+There are only six of them, collected in `md2word/i18n.py`:
+
+| Key | Where it surfaces |
+|:----|:------------------|
+| `toc_title` | Heading above the table of contents |
+| `toc_placeholder` | Cached field result, shown until Word recalculates |
+| `endnotes_title` | Heading of the collected notes with `--footnotes endnotes` |
+| `image_placeholder` | Stand-in for an image that could not be loaded |
+| `untitled` | Title page without a title |
+| `generated_note` | Appended to the document's comments property |
+
+`i18n.translate(lang, key, **fields)` reduces the tag to its primary subtag
+(`de-AT` → `de`) and falls back to English per key, so a partial translation is
+valid. English, German, French, Spanish and Italian are present; adding one is a
+single dictionary entry, and `test_every_language_has_every_key` catches a typo
+in a key name.
+
+`--toc-title` still wins over the language default, which is why
+`Config.toc_title` defaults to the empty string rather than to a German word —
+an empty value means "derive it", not "leave it blank".
+
+Dates on the title page use ISO 8601 when none is given. A localised format
+would need a locale database; ISO is unambiguous everywhere and sorts correctly.
+
 
 ---
 
-## 7. Konfigurationsauflösung
+## 7. Resolving configuration
 
-Vier Quellen, in aufsteigender Priorität:
+Four sources, in ascending precedence:
 
 ```
-Standardwerte (config.Config)
-    ↓ überschrieben von
-Farbschema (THEMES[name]) — nur leere Felder
-    ↓ überschrieben von
-YAML-Front-Matter
-    ↓ überschrieben von
-Kommandozeile — aber nur, was dort ausdrücklich steht
+Defaults (config.Config)
+    ↓ overridden by
+Theme (THEMES[name]) — only fills empty fields
+    ↓ overridden by
+YAML front matter
+    ↓ overridden by
+Command line — but only what was actually stated there
 ```
 
-Die letzte Zeile ist der Knackpunkt. `argparse` liefert für jede Option einen
-Wert, auch wenn der Nutzer sie nie angegeben hat — anhand des Namespace lässt
-sich also nicht unterscheiden, ob `--theme default` gewählt oder nur der
-Standardwert eingesetzt wurde. Ohne diese Unterscheidung könnte ein `theme:
-modern` im Front Matter nie wirken.
+That last line is the crux. `argparse` supplies a value for every option, even
+one the user never passed — so the namespace alone cannot distinguish between
+"`--theme default` was chosen" and "the default was applied". Without that
+distinction, a `theme: modern` in the front matter could never take effect.
 
-`cli._explicit_options` löst das, indem es das rohe `argv` gegen die
-Optionsnamen des Parsers abgleicht und die Menge der tatsächlich genannten
-Felder bildet. Diese Menge reist als `Config._explicit` mit;
-`converter._apply_front_matter` verwirft Front-Matter-Werte für alles, was darin
-steht. Dieselbe Menge entscheidet, ob eine Referenzvorlage ihr Seitenlayout
-behalten darf.
+`cli._explicit_options` solves it by matching the raw `argv` against the parser's
+option strings and building the set of fields actually named. That set travels
+along as `Config._explicit`; `converter._apply_front_matter` discards front-matter
+values for anything in it. The same set decides whether a reference document gets
+to keep its page layout.
 
-`--margin 12` trägt zusätzlich alle vier Randfelder in die Menge ein, damit ein
-einzelnes `--margin-left 40` danach noch gewinnen kann.
+`--margin 12` additionally enters all four margin fields into the set, so that a
+subsequent `--margin-left 40` can still win.
 
-Unbekannte Front-Matter-Schlüssel wandern nach `Config._extra` statt zu einem
-Fehler zu führen — eigene Projektfelder in den Metadaten stören nicht.
+Unknown front-matter keys go into `Config._extra` instead of raising — your own
+project fields in the metadata are harmless.
 
 ---
 
-## 8. Maßeinheiten
+## 8. Units of measure
 
-OOXML verwendet je nach Kontext verschiedene Einheiten. Wer den Code liest,
-stolpert sonst über Zahlen wie `size=18` für eine 2,25 pt starke Linie:
+OOXML uses different units depending on context. Without this table, numbers like
+`size=18` for a 2.25 pt rule are baffling:
 
-| Einheit | Umrechnung | Wo verwendet |
-|:--------|:-----------|:-------------|
-| **EMU** (English Metric Unit) | 914 400 / Zoll, 36 000 / mm | Bildgrößen, python-docx' `Mm()`, `Pt()` |
-| **Twip** (1/20 Punkt) | 1 440 / Zoll, 635 EMU | Einzüge, Ränder, Zellenabstände |
-| **Halbpunkt** | 2 pro Punkt | Schriftgrößen (`w:sz`) |
-| **Achtelpunkt** | 8 pro Punkt | Rahmenstärken (`w:sz` in `w:pBdr`) |
+| Unit | Conversion | Used for |
+|:-----|:-----------|:---------|
+| **EMU** (English Metric Unit) | 914,400 per inch, 36,000 per mm | image sizes, python-docx's `Mm()`, `Pt()` |
+| **Twip** (1/20 point) | 1,440 per inch, 635 EMU | indents, margins, cell padding |
+| **Half-point** | 2 per point | font sizes (`w:sz`) |
+| **Eighth-point** | 8 per point | border widths (`w:sz` inside `w:pBdr`) |
 
-Ein Rundungseffekt hat Testkonsequenzen: `Mm(8.0)` sind 288 000 EMU, gespeichert
-wird aber in Twips (453,5 → 454), beim Zurücklesen ergibt das 288 290 EMU. Die
-Tests vergleichen Längen deshalb mit Toleranz statt auf Gleichheit.
+One rounding effect has test consequences: `Mm(8.0)` is 288,000 EMU, but it is
+stored in twips (453.5 → 454), and reading it back gives 288,290 EMU. The tests
+therefore compare lengths with a tolerance rather than for equality.
 
 ---
 
-## 9. PyInstaller: die drei Fallstricke
+## 9. PyInstaller: the three pitfalls
 
-**1. Die Word-Grundvorlage.** python-docx liefert `docx/templates/default.docx`
-als Paketdatei mit. Der Import-Scanner sieht nur Python-Module, keine Daten —
-ohne `collect_data_files("docx", …)` scheitert schon der erste
-`Document()`-Aufruf.
+**1. The base Word template.** python-docx ships `docx/templates/default.docx` as
+a package file. The import scanner only sees Python modules, not data — without
+`collect_data_files("docx", …)` even the first `Document()` call fails.
 
-**2. Das fehlende Verzeichnis `docx/parts/`.** Der subtilste Fehler. Die Module
-dort bauen ihre Pfade so:
+**2. The missing `docx/parts/` directory.** The subtlest bug. The modules there
+build their paths like this:
 
 ```python
 path = os.path.join(os.path.split(__file__)[0], "..", "templates", "default-footer.xml")
 ```
 
-Im Bundle liegen die Python-Module im PYZ-Archiv, nicht als Dateien. Im
-entpackten Verzeichnis existiert `docx/templates/` (Datendateien), aber
-`docx/parts/` nicht. Und das Betriebssystem kann `..` nur auflösen, wenn **jede**
-Pfadkomponente existiert — auch die, die durch das `..` wieder verlassen wird.
-Ergebnis: `FileNotFoundError` auf eine Datei, die sehr wohl im Bundle liegt.
+In the bundle the Python modules live in the PYZ archive, not as files. The
+extracted directory contains `docx/templates/` (data files) but no `docx/parts/`.
+And the operating system can only resolve `..` if **every** path component
+exists — including the one the `..` immediately leaves again. The result is a
+`FileNotFoundError` for a file that is very much present in the bundle.
 
-Der Fehler tritt nur auf, wenn Kopf-/Fußzeilen, Kommentare, Einstellungen oder
-Formatvorlagen nachgeladen werden — eine einfache Konvertierung läuft
-durch. Ein Probelauf ohne `--page-numbers` hätte ihn nicht gefunden; deshalb
-konvertiert `build.py` nach jedem Bau ein Dokument mit Verzeichnis **und**
-Seitenzahlen und prüft das Ergebnis auf `word/footnotes.xml` und Konsorten.
+The failure only shows up when headers, footers, comments, settings or styles are
+loaded on demand — a plain conversion runs fine. A smoke test without
+`--page-numbers` would not have caught it, which is why `build.py` converts a
+document with both a table of contents **and** page numbers after every build and
+inspects the result for `word/footnotes.xml` and friends.
 
-Die Lösung ist eine beliebige Datei an dieser Stelle:
+The fix is any file at that location:
 
 ```python
 datas.append((os.path.join(os.path.dirname(_docx.__file__), "py.typed"), "docx/parts"))
 ```
 
-**3. Pygments lädt dynamisch.** Lexer und Farbschemata werden zur Laufzeit über
-Namenstabellen aufgelöst, nicht importiert. Ohne
-`collect_submodules("pygments.lexers")` und `…styles` baut alles fehlerfrei — und
-im fertigen Programm fehlt jede Syntaxhervorhebung.
+**3. Pygments loads dynamically.** Lexers and colour schemes are resolved at
+runtime through name tables, never imported. Without
+`collect_submodules("pygments.lexers")` and `…styles` everything builds
+cleanly — and the finished program has no syntax highlighting whatsoever.
 
-Verwandt: `linkify_it` und `uc_micro` werden von markdown-it nur bei
-aktiviertem Linkify importiert und müssen als versteckte Importe angemeldet
-werden.
+Related: `linkify_it` and `uc_micro` are imported by markdown-it only when
+linkify is enabled and must be declared as hidden imports.
 
-### Ein Verzeichnis oder eine Datei
+### One directory or one file
 
-`--onefile` packt alles in eine Binärdatei, die sich bei **jedem** Start in
-einen temporären Ordner entpackt. Auf macOS prüft Gatekeeper dabei jede der rund
-hundert enthaltenen Bibliotheken einzeln — gemessen 6,5 s pro Aufruf gegenüber
-0,3 s bei der Verzeichnisvariante. Deshalb ist das Verzeichnis die Voreinstellung.
+`--onefile` packs everything into a single binary that unpacks itself into a
+temporary folder on **every** start. On macOS, Gatekeeper inspects each of the
+roughly one hundred bundled libraries as it does — measured at 6.5 s per
+invocation against 0.3 s for the directory build. Hence the directory is the
+default.
 
-Die Bauart wird über `sys.argv` in der Spec ausgewertet. PyInstaller reicht
-alles nach `--` weiter, **entfernt den Trenner dabei aber** — eine Suche nach
-`"--"` in `sys.argv` schlägt fehl. `build.py` setzt zusätzlich
-`MD2WORD_ONEFILE=1` als zweiten Weg.
-
----
-
-## 10. Validierung und Teststrategie
-
-193 Tests in vier Dateien, ausgeführt gegen Python 3.9 und 3.14.
-
-Der Kern ist `assert_valid` in `tests/conftest.py`. Jeder Test, der eine ganze
-Datei erzeugt, schickt sie hindurch. Geprüft wird das OPC-Paket selbst, nicht
-nur die python-docx-Sicht darauf:
-
-| Prüfung | Fängt |
-|:--------|:------|
-| ZIP intakt, alle XML-Parts wohlgeformt | grobe Strukturschäden |
-| Jeder Part hat einen Content-Type, jedes Override einen Part | Word verweigert die Datei |
-| Alle Relationships lösen auf, alle `r:id` existieren | tote Bild- und Linkverweise |
-| Jeder `pStyle`/`rStyle`/`tblStyle` existiert in `styles.xml` | Tippfehler in Style-IDs |
-| `numId` definiert, `abstractNum` vor `num` | Reparaturdialog |
-| Fußnotenverweise haben eine Definition | halbe Fußnoten |
-| Lesezeichen paarig, jeder Anker hat ein Ziel | tote Querverweise |
-| Kein `\n` in `w:t` | Zeilenumbrüche, die keine sind |
-| `fldChar begin`/`end` paarig, inkl. Kopf-/Fußzeilen | zerbrochene Felder |
-
-Diese Prüfungen ersetzen keinen echten Word-Start, decken aber genau die Fehler
-ab, die zum Reparaturdialog führen. Ergänzend wurde das Ergebnis mit Pandoc
-zurück nach Markdown gelesen — dabei fiel etwa auf, dass zwei Absätze eines
-Listenpunkts aneinanderklebten.
-
-`test_conversion_is_deterministic` stellt sicher, dass zweimaliges Konvertieren
-desselben Texts byte-identische `document.xml` liefert — Voraussetzung dafür,
-Ergebnisse überhaupt vergleichen zu können.
-
-Die Randfall-Datei wirft bewusst kaputtes Markup gegen den Konverter:
-unabgeschlossene Auszeichnung, Tabellen mit ungleicher Spaltenzahl, zwölffach
-verschachtelte Listen, Steuerzeichen, Emoji, CJK, `\r`-Zeilenenden, BOM. Der
-Anspruch ist nicht, alles sinnvoll darzustellen, sondern nie eine ungültige
-Datei zu schreiben.
+The build mode is read from `sys.argv` inside the spec. PyInstaller forwards
+everything after `--` but **strips the separator itself**, so searching for `"--"`
+in `sys.argv` fails. `build.py` additionally sets `MD2WORD_ONEFILE=1` as a second
+route.
 
 ---
 
-## 11. Erweiterungspunkte
+## 10. Validation and test strategy
 
-**Ein neues Blockelement** braucht einen Eintrag im Dispatch-Dictionary von
-`_render_block` und eine Methode `_block_xyz(node, state)`. Vorlage:
-`_block_paragraph`.
+219 tests across five files, run against Python 3.9 and 3.14.
 
-**Ein neues Inline-Format** wird in `InlineFormat` als Feld ergänzt, in
-`_extend_format` aus dem Tag abgeleitet und in `_apply_format` auf den Run
-angewendet.
+The core is `assert_valid` in `tests/conftest.py`. Every test that produces a
+complete file sends it through. What gets checked is the OPC package itself, not
+merely python-docx's view of it:
 
-**Ein neues Farbschema** ist ein Eintrag in `config.THEMES` mit allen acht
-Schlüsseln. Die CLI zieht die Auswahlliste automatisch daraus, und
-`test_themes_apply_fonts` prüft jedes Schema per Parametrisierung — ein neues
-Schema wird ohne Zutun mitgetestet.
+| Check | Catches |
+|:------|:--------|
+| ZIP intact, all XML parts well-formed | gross structural damage |
+| Every part has a content type, every override a part | Word refusing the file |
+| All relationships resolve, all `r:id` exist | dead image and link references |
+| Every `pStyle`/`rStyle`/`tblStyle` exists in `styles.xml` | typos in style IDs |
+| `numId` defined, `abstractNum` before `num` | the repair dialog |
+| Footnote references have a definition | half-written footnotes |
+| Bookmarks paired, every anchor has a target | dead cross-references |
+| No `\n` inside `w:t` | line breaks that are not line breaks |
+| `fldChar begin`/`end` paired, headers and footers included | broken fields |
 
-**Ein neues Papierformat** ist ein Eintrag in `config.PAGE_SIZES`; auch dieser
-Test ist parametrisiert.
+These checks do not replace actually opening the file in Word, but they cover
+precisely the faults that trigger the repair dialog. As a complement, output was
+read back to Markdown with Pandoc — which is how it surfaced that two paragraphs
+of a list item had run together.
 
-**Eine neue Front-Matter-Option** gehört in `converter._OPTION_KEYS` mit ihrem
-Zieltyp. Die Umwandlung übernimmt `_coerce`, das für Wahrheitswerte auch `ja`
-und `nein` versteht.
+`test_conversion_is_deterministic` guarantees that converting the same text twice
+yields byte-identical `document.xml` — the prerequisite for comparing results at
+all.
 
-**Echte Word-Formeln (OMML)** wären der größte offene Punkt. Der Weg führte über
-LaTeX → MathML → OMML per XSLT (Microsofts `MML2OMML.xsl`) und ein neues
-Modul, das das Ergebnis als `m:oMath` in den Absatz hängt. Die Anknüpfstellen
-sind `_block_math` und der `math`-Zweig in `_render_inline_node`.
+The edge-case file deliberately throws broken markup at the converter:
+unterminated emphasis, tables with uneven column counts, twelve-deep nested
+lists, control characters, emoji, CJK, `\r` line endings, BOM. The goal is not to
+render all of it sensibly, but never to write an invalid file.
 
 ---
 
-## 12. Bewusste Kompromisse
+## 11. Extension points
 
-| Entscheidung | Grund | Preis |
-|:-------------|:------|:------|
-| Umweg über HTML statt Token-Strom | Verschachtelung kommt gratis, lxml repariert kaputtes Markup | zusätzliches Serialisieren und Parsen |
-| python-docx statt reinem lxml | OPC-Buchhaltung, Bilder, Content-Types geschenkt | für die Hälfte der Elemente Handarbeit nötig |
-| Formeln als formatierter Text | OMML-Erzeugung wäre ein eigenes Teilprojekt | keine bearbeitbaren Word-Formeln |
-| Spaltenbreiten selbst berechnen | Words Automatik sprengt den Satzspiegel | Heuristik, keine perfekte Typografie |
-| Ein Absatz je Codezeile | Word kann `<pre>` nicht abbilden | Rahmen müssen von Hand zusammengesetzt werden |
-| Zitate per Nachbearbeitung | Tiefe steht erst nach dem Rendern fest | zwei Durchläufe über dieselben Absätze |
-| Pandoc-kompatible Style-IDs | Referenzdokumente und Rückweg funktionieren | Bindung an fremde Namenskonventionen |
-| Bilder standardmäßig herunterladen | entspricht dem Verhalten von Pandoc und Editoren | Netzzugriff beim Konvertieren, abschaltbar mit `--no-remote-images` |
-| Verzeichnis statt Einzeldatei als Bau-Standard | zwanzigmal schnellerer Start | drei- bis vierfacher Platzbedarf |
+**A new block element** needs an entry in `_render_block`'s dispatch dictionary
+and a `_block_xyz(node, state)` method. Use `_block_paragraph` as the template.
+
+**A new inline format** is added as a field on `InlineFormat`, derived from the
+tag in `_extend_format`, and applied to the run in `_apply_format`.
+
+**A new theme** is an entry in `config.THEMES` with all eight keys. The CLI
+derives its choice list from it automatically, and `test_themes_apply_fonts` is
+parametrised over every theme — a new one is covered without any extra work.
+
+**A new paper size** is an entry in `config.PAGE_SIZES`; that test is
+parametrised too.
+
+**A new document language** is one dictionary in `md2word/i18n.py`, keyed by
+the primary subtag. Missing keys fall back to English, so a partial entry is
+fine. Quotation marks live separately, in `parser._QUOTES`.
+
+**A new front-matter option** belongs in `converter._OPTION_KEYS` together with
+its target type. Conversion is handled by `_coerce`, which also understands
+`ja`/`nein` for booleans alongside `yes`/`no`.
+
+**Real Word equations (OMML)** would be the largest open item. The route runs
+LaTeX → MathML → OMML via XSLT (Microsoft's `MML2OMML.xsl`) plus a new module
+that inserts the result into the paragraph as `m:oMath`. The hook points are
+`_block_math` and the `math` branch in `_render_inline_node`.
+
+---
+
+## 12. Deliberate trade-offs
+
+| Decision | Reason | Price |
+|:---------|:-------|:------|
+| Route through HTML instead of the token stream | nesting comes for free, lxml repairs broken markup | one extra serialise-and-parse |
+| python-docx instead of bare lxml | OPC bookkeeping, images, content types handled | half the elements need hand-written XML |
+| Formulas as formatted text | generating OMML would be a sub-project of its own | no editable Word equations |
+| Computing column widths ourselves | Word's automation overruns the text area | a heuristic, not perfect typography |
+| One paragraph per code line | Word cannot represent `<pre>` | borders have to be assembled by hand |
+| Quotes handled in post-processing | depth is only known after rendering | two passes over the same paragraphs |
+| Pandoc-compatible style IDs | reference documents and the return trip work | tied to someone else's naming conventions |
+| Fetching remote images by default | matches Pandoc's and editors' behaviour | network access during conversion, disabled with `--no-remote-images` |
+| Directory build as the default | twenty times faster startup | three to four times the disk footprint |

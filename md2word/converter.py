@@ -1,4 +1,4 @@
-"""Setzt das fertige Word-Dokument zusammen: Rahmen, Metadaten, Inhalt."""
+"""Assembles the finished Word document: frame, metadata, content."""
 
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.shared import Pt
 
 from md2word import docxutil as dx
+from md2word import i18n
 from md2word import styles as st
 from md2word.config import Config
 from md2word.parser import markdown_to_html
 from md2word.renderer import DocxRenderer
 
-# Front-Matter-Schluessel, die direkt in die Konfiguration wandern
+# Front-matter keys that map straight onto configuration fields
 _META_KEYS = {
     "title": "title",
     "subtitle": "subtitle",
@@ -33,7 +34,7 @@ _META_KEYS = {
     "language": "lang",
 }
 
-# Front-Matter-Schluessel, die Layoutoptionen schalten duerfen
+# Front-matter keys that are allowed to switch layout options
 _OPTION_KEYS = {
     "toc": bool,
     "toc_depth": int,
@@ -65,7 +66,7 @@ _ALIAS = {
 
 @dataclass
 class Result:
-    """Ergebnis einer Konvertierung."""
+    """Result of one conversion."""
 
     output_path: str
     warnings: list[str]
@@ -73,7 +74,7 @@ class Result:
 
 
 def convert_file(input_path: str, output_path: str, config: Config) -> Result:
-    """Liest eine Markdown-Datei und schreibt das Word-Dokument."""
+    """Reads a Markdown file and writes the Word document."""
     if input_path == "-":
         import sys
 
@@ -91,7 +92,7 @@ def convert_file(input_path: str, output_path: str, config: Config) -> Result:
 def convert_text(
     text: str, output_path: str, config: Config, source_name: str = ""
 ) -> Result:
-    """Konvertiert Markdown-Text und speichert das Ergebnis unter output_path."""
+    """Converts Markdown text and saves the result to output_path."""
     html, front_matter = markdown_to_html(text, config)
     config = _apply_front_matter(config, front_matter)
 
@@ -143,7 +144,7 @@ def convert_text(
 
 # ----------------------------------------------------------------------
 def _footnote_parts(document: Any) -> list[Any]:
-    """Liefert den Fussnoten-Part, falls einer angelegt wurde."""
+    """Returns the footnotes part, if one was created."""
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
 
     return [
@@ -160,13 +161,13 @@ def _clone_with_base_dir(config: Config, base_dir: str) -> Config:
 
 
 def _create_document(config: Config) -> Any:
-    """Neues Dokument - optional auf Basis einer Referenzvorlage."""
+    """A new document - optionally based on a reference template."""
     if not config.reference_doc:
         return Document()
 
     path = os.path.expanduser(config.reference_doc)
     if not os.path.isfile(path):
-        raise FileNotFoundError(f"Referenzdokument nicht gefunden: {path}")
+        raise FileNotFoundError(f"reference document not found: {path}")
 
     document = Document(path)
     body = document.element.body
@@ -178,7 +179,7 @@ def _create_document(config: Config) -> Any:
 
 
 def _apply_front_matter(config: Config, meta: dict[str, Any]) -> Config:
-    """Uebernimmt Metadaten und Layoutoptionen aus dem YAML-Front-Matter."""
+    """Applies metadata and layout options from the YAML front matter."""
     if not meta:
         return config
 
@@ -205,7 +206,7 @@ def _apply_front_matter(config: Config, meta: dict[str, Any]) -> Config:
 
         extra[key] = value
 
-    # Kommandozeile schlaegt Front Matter: explizit gesetzte Werte bleiben
+    # The command line beats the front matter: explicit values stay
     for field in list(updates):
         if field in config._explicit:
             updates.pop(field)
@@ -263,7 +264,9 @@ def _apply_core_properties(document: Any, config: Config, source_name: str) -> N
     props.modified = _dt.datetime.now()
     if source_name and source_name != "-":
         existing = props.comments or ""
-        note = f"Erzeugt mit md2word aus {os.path.basename(source_name)}"
+        note = i18n.translate(
+            config.lang, "generated_note", source=os.path.basename(source_name)
+        )
         props.comments = f"{existing}\n{note}".strip()
 
 
@@ -277,14 +280,16 @@ def _build_title_page(document: Any, config: Config) -> None:
         spacer = document.add_paragraph()
         spacer.paragraph_format.space_after = Pt(0)
 
-    title = document.add_paragraph(config.title or "Ohne Titel")
+    title = document.add_paragraph(
+        config.title or i18n.translate(config.lang, "untitled")
+    )
     title.style = lookup["Title"]
 
     if config.subtitle:
         subtitle = document.add_paragraph(config.subtitle)
         subtitle.style = lookup["Subtitle"]
 
-    for value in (config.author, config.date or _dt.date.today().strftime("%d.%m.%Y")):
+    for value in (config.author, config.date or _dt.date.today().isoformat()):
         if not value:
             continue
         line = document.add_paragraph(value)
@@ -319,14 +324,14 @@ def _build_toc(document: Any, config: Config) -> None:
         heading.style = lookup["TOCHeading"]
     except KeyError:
         heading.style = lookup["Heading1"]
-    heading.add_run(config.toc_title)
+    heading.add_run(config.toc_title or i18n.translate(config.lang, "toc_title"))
 
     body = document.add_paragraph()
     depth = max(1, min(9, config.toc_depth))
     dx.add_field(
         body,
         f'TOC \\o "1-{depth}" \\h \\z \\u',
-        placeholder="Rechtsklick › Felder aktualisieren, um das Inhaltsverzeichnis zu fuellen.",
+        placeholder=i18n.translate(config.lang, "toc_placeholder"),
     )
 
     breaker = document.add_paragraph()
@@ -381,7 +386,7 @@ def _build_header_footer(document: Any, config: Config) -> None:
 
 
 def _remove_leading_empty_paragraph(document: Any) -> None:
-    """Entfernt einen leeren Startabsatz, den python-docx-Vorlagen mitbringen."""
+    """Removes the empty leading paragraph that python-docx templates carry."""
     paragraphs = document.paragraphs
     if not paragraphs:
         return

@@ -1,4 +1,4 @@
-"""Uebertraegt den HTML-Baum des Markdown-Dokuments in ein Word-Dokument."""
+"""Transfers the Markdown document's HTML tree into a Word document."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
 from md2word import docxutil as dx
+from md2word import i18n
 from md2word import images as img
 from md2word import styles as st
 from md2word.config import Config
@@ -33,13 +34,13 @@ _ALIGNMENTS = {
     "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
 }
 
-_CHECKBOX_CHECKED = "☒ "   # gekreuztes Kaestchen
-_CHECKBOX_OPEN = "☐ "      # leeres Kaestchen
+_CHECKBOX_CHECKED = "☒ "   # ballot box with X
+_CHECKBOX_OPEN = "☐ "      # empty ballot box
 
 
 @dataclass
 class InlineFormat:
-    """Zeichenformatierung, die beim Abstieg durch Inline-Tags mitwaechst."""
+    """Character formatting that accumulates while descending inline tags."""
 
     bold: bool = False
     italic: bool = False
@@ -63,9 +64,9 @@ class InlineFormat:
 
 @dataclass
 class RenderState:
-    """Wo im Dokument gerade geschrieben wird."""
+    """Where in the document writing currently happens."""
 
-    container: Any                      # Document, _Cell oder Footnote-Kontext
+    container: Any                      # Document, _Cell or footnote context
     list_stack: list[tuple[int, bool]] = field(default_factory=list)
     quote_depth: int = 0
     indent_mm: float = 0.0
@@ -73,7 +74,7 @@ class RenderState:
 
 
 class Warnings:
-    """Sammelt nicht-fatale Probleme, damit sie gebuendelt gemeldet werden."""
+    """Collects non-fatal problems so they can be reported together."""
 
     def __init__(self, verbose: bool = False) -> None:
         self.items: list[str] = []
@@ -87,7 +88,7 @@ class Warnings:
 
 
 class DocxRenderer:
-    """Baut aus dem HTML-Baum das Word-Dokument auf."""
+    """Builds the Word document from the HTML tree."""
 
     def __init__(self, document: Any, config: Config) -> None:
         self.doc = document
@@ -105,7 +106,7 @@ class DocxRenderer:
         self._first_block = True
 
     # ------------------------------------------------------------------
-    # Einstieg
+    # Entry point
     # ------------------------------------------------------------------
     def render(self, html: str) -> None:
         root = lxml.html.fragment_fromstring(html or "", create_parent="div")
@@ -115,8 +116,10 @@ class DocxRenderer:
         if self.cfg.footnote_mode == "footnotes" and self._footnote_html:
             try:
                 self._footnotes = dx.FootnoteStore(self.doc)
-            except Exception as exc:  # pragma: no cover - defensiv
-                self.warnings.add(f"Echte Fussnoten nicht moeglich ({exc}) - nutze Endnoten")
+            except Exception as exc:  # pragma: no cover - defensive
+                self.warnings.add(
+                    f"real footnotes unavailable ({exc}) - falling back to endnotes"
+                )
                 self.cfg.footnote_mode = "endnotes"
 
         state = RenderState(container=self.doc)
@@ -124,10 +127,10 @@ class DocxRenderer:
         self._emit_endnotes()
 
     # ------------------------------------------------------------------
-    # Vorbereitung
+    # Preparation
     # ------------------------------------------------------------------
     def _collect_footnotes(self, root: Any) -> None:
-        """Schneidet den Fussnoten-Abschnitt heraus und merkt sich die Inhalte."""
+        """Cuts out the footnotes section and remembers its contents."""
         sections = root.xpath(".//section[contains(@class,'footnotes')]")
         for section in sections:
             for item in section.xpath(".//li"):
@@ -142,7 +145,7 @@ class DocxRenderer:
             _drop(separator)
 
     def _prescan_headings(self, root: Any) -> None:
-        """Vergibt Anker-IDs fuer Ueberschriften, damit [Text](#anker) klappt."""
+        """Assigns anchor IDs to headings so [text](#anchor) resolves."""
         for level in range(1, 7):
             for heading in root.xpath(f".//h{level}"):
                 text = "".join(heading.itertext()).strip()
@@ -154,7 +157,7 @@ class DocxRenderer:
                 self._heading_anchors[anchor] = text
 
     # ------------------------------------------------------------------
-    # Blockebene
+    # Block level
     # ------------------------------------------------------------------
     def _render_children(self, element: Any, state: RenderState) -> None:
         if element.text and element.text.strip():
@@ -165,7 +168,7 @@ class DocxRenderer:
                 self._loose_text(child.tail, state)
 
     def _loose_text(self, text: str, state: RenderState) -> None:
-        """Text direkt auf Blockebene (kommt bei rohem HTML vor)."""
+        """Text sitting directly at block level (happens with raw HTML)."""
         cleaned = _collapse(text)
         if not cleaned:
             return
@@ -175,7 +178,7 @@ class DocxRenderer:
     def _render_block(self, node: Any, state: RenderState) -> None:
         tag = _tag(node)
 
-        if tag is None:  # Kommentar oder Processing Instruction
+        if tag is None:  # comment or processing instruction
             return
 
         if tag in _INLINE_TAGS:
@@ -224,7 +227,7 @@ class DocxRenderer:
         handler(node, state)
 
     def _block_container(self, node: Any, state: RenderState) -> None:
-        """Unbekannter Block: Inhalt uebernehmen, Huelle ignorieren."""
+        """Unknown block: keep the content, discard the wrapper."""
         if _has_block_children(node):
             self._render_children(node, state)
         else:
@@ -254,8 +257,8 @@ class DocxRenderer:
         run.italic = True
         dx.set_run_font(run, "Cambria Math")
         self.warnings.add(
-            "Mathematischer Ausdruck wurde als formatierter Text uebernommen, "
-            "nicht als Word-Formel"
+            "a mathematical expression was carried over as formatted text, "
+            "not as a Word equation"
         )
 
     def _block_paragraph(self, node: Any, state: RenderState) -> None:
@@ -296,9 +299,8 @@ class DocxRenderer:
             style_id = paragraph.style.style_id
             if style_id == st.S_CODE_BLOCK or style_id.startswith("Heading"):
                 continue
-            # Absaetze eines verschachtelten Zitats sind bereits fertig
-            # eingerueckt - sie hier erneut anzufassen wuerde die Staffelung
-            # wieder einebnen.
+            # Paragraphs of a nested quote are already indented - touching
+            # them again here would flatten the staggering.
             if style_id == st.S_QUOTE:
                 continue
             paragraph.style = self.styles[st.S_QUOTE]
@@ -352,7 +354,7 @@ class DocxRenderer:
         if not paragraphs:
             return
 
-        # Rahmen nur aussen: oben am ersten, unten am letzten Absatz
+        # Borders on the outside only: top on the first, bottom on the last
         for position, paragraph in enumerate(paragraphs):
             edges = ["left", "right"]
             if position == 0:
@@ -405,12 +407,12 @@ class DocxRenderer:
         if prefix:
             first.add_run(prefix)
 
-        # Direkter Text und Inline-Inhalt landen im ersten Absatz
+        # Direct text and inline content go into the first paragraph
         if item.text and item.text.strip():
             self._add_run(first, _collapse_leading(item.text), InlineFormat(), state)
 
-        # Nur der erste Absatz des Listenpunkts traegt das Aufzaehlungszeichen;
-        # alles Weitere wird darunter eingerueckt.
+        # Only the item's first paragraph carries the bullet; everything
+        # else is indented underneath it.
         pending_blocks: list[Any] = []
         first_paragraph_used = False
         for child in content_nodes:
@@ -429,7 +431,7 @@ class DocxRenderer:
 
         self._drop_if_empty(first, force_keep=bool(prefix))
 
-        # Weitere Bloecke im selben Listenpunkt: eingerueckt, ohne Aufzaehlungszeichen
+        # Further blocks in the same item: indented, without a bullet
         if pending_blocks:
             nested_state = RenderState(
                 container=state.container,
@@ -447,7 +449,7 @@ class DocxRenderer:
                     if current < Mm(nested_state.indent_mm):
                         paragraph.paragraph_format.left_indent = Mm(nested_state.indent_mm)
 
-        # Verschachtelte Listen
+        # Nested lists
         for sublist in blocks:
             self._block_list(sublist, state)
 
@@ -479,7 +481,7 @@ class DocxRenderer:
         self._render_inline(node, paragraph, InlineFormat(), state, include_tail=False)
 
     # ------------------------------------------------------------------
-    # Tabellen
+    # Tables
     # ------------------------------------------------------------------
     def _block_table(self, node: Any, state: RenderState) -> None:
         rows = node.xpath("./thead/tr") + node.xpath("./tbody/tr") + node.xpath("./tr")
@@ -521,14 +523,14 @@ class DocxRenderer:
 
                 self._fill_cell(cell, cells[col_index], state, bold=is_header)
 
-        # Leerabsatz nach der Tabelle: sonst kleben zwei Tabellen aneinander
+        # An empty paragraph after the table: otherwise two tables merge
         if not isinstance(state.container, _Cell):
             spacer = self.doc.add_paragraph()
             spacer.paragraph_format.space_before = Pt(0)
             spacer.paragraph_format.space_after = Pt(6)
 
     def _column_widths(self, rows: Iterable[Any], columns: int, state: RenderState) -> list[Mm]:
-        """Verteilt die Textbreite proportional zur Inhaltslaenge auf die Spalten."""
+        """Distributes the text width across columns by content length."""
         weights = [1.0] * columns
         for row in rows:
             cells = row.xpath("./th|./td")
@@ -583,7 +585,7 @@ class DocxRenderer:
             cell.add_paragraph()
 
     # ------------------------------------------------------------------
-    # Inline-Ebene
+    # Inline level
     # ------------------------------------------------------------------
     def _render_inline(
         self,
@@ -653,7 +655,7 @@ class DocxRenderer:
         child_fmt = self._extend_format(fmt, tag, node)
 
         if tag in {"ul", "ol", "p", "div", "blockquote", "pre", "table"}:
-            # Blockelement mitten im Inline-Kontext: als Text uebernehmen
+            # A block element inside inline context: take it over as text
             text = _collapse("".join(node.itertext()))
             if text:
                 self._add_run(paragraph, text, child_fmt, state)
@@ -756,11 +758,11 @@ class DocxRenderer:
             self._render_inline(node, paragraph, fmt, state, include_tail=False)
             return
 
-        # Interner Anker
+        # Internal anchor
         if href.startswith("#"):
             anchor = href[1:]
             if anchor not in self._anchors:
-                self.warnings.add(f"Interner Verweis ohne Ziel: {href}")
+                self.warnings.add(f"internal link has no target: {href}")
                 self._render_inline(node, paragraph, fmt, state, include_tail=False)
                 return
             container = dx.add_internal_hyperlink(paragraph, anchor)
@@ -768,7 +770,7 @@ class DocxRenderer:
             try:
                 container = dx.add_external_hyperlink(paragraph, href)
             except Exception as exc:
-                self.warnings.add(f"Link konnte nicht gesetzt werden ({href}): {exc}")
+                self.warnings.add(f"could not create link ({href}): {exc}")
                 self._render_inline(node, paragraph, link_fmt, state, include_tail=False)
                 return
 
@@ -837,7 +839,7 @@ class DocxRenderer:
             return
         heading = self.doc.add_paragraph()
         heading.style = self.styles["Heading2"]
-        heading.add_run("Anmerkungen")
+        heading.add_run(i18n.translate(self.cfg.lang, "endnotes_title"))
 
         num_id = self.numbering.new_list(ordered=True)
         state = RenderState(container=self.doc)
@@ -854,7 +856,7 @@ class DocxRenderer:
                 self._add_run(paragraph, "".join(source.itertext()), InlineFormat(), state)
 
     # ------------------------------------------------------------------
-    # Bilder
+    # Images
     # ------------------------------------------------------------------
     def _inline_image(self, node: Any, paragraph: Paragraph, state: RenderState) -> None:
         src = node.get("src") or ""
@@ -869,10 +871,12 @@ class DocxRenderer:
                 timeout=self.cfg.image_timeout,
             )
         except Exception as exc:
-            self.warnings.add(f"Bild uebersprungen: {exc}")
+            self.warnings.add(f"image skipped: {exc}")
             fallback = alt or title or src
             if fallback:
-                run = paragraph.add_run(f"[Bild: {fallback}]")
+                run = paragraph.add_run(
+                    i18n.translate(self.cfg.lang, "image_placeholder", label=fallback)
+                )
                 run.italic = True
                 run.font.color.rgb = st.hex_to_rgb(self.cfg.quote_color)
             return
@@ -885,7 +889,7 @@ class DocxRenderer:
             run = paragraph.add_run()
             run.add_picture(loaded.stream, width=width)
         except Exception as exc:
-            self.warnings.add(f"Bild konnte nicht eingebettet werden ({src}): {exc}")
+            self.warnings.add(f"could not embed image ({src}): {exc}")
             return
 
         caption = self._caption_for(alt, title)
@@ -896,7 +900,7 @@ class DocxRenderer:
             caption_paragraph.add_run(caption)
 
     def _caption_for(self, alt: str, title: str) -> str:
-        """Bildunterschrift gemaess --captions bestimmen."""
+        """Determines the caption according to --captions."""
         mode = self.cfg.captions
         if mode == "none":
             return ""
@@ -905,7 +909,7 @@ class DocxRenderer:
         return title
 
     # ------------------------------------------------------------------
-    # Hilfsfunktionen fuer Absaetze
+    # Paragraph helpers
     # ------------------------------------------------------------------
     def _new_paragraph(self, state: RenderState) -> Paragraph:
         container = state.container if state.container is not None else self.doc
@@ -940,7 +944,7 @@ class DocxRenderer:
 
 
 # ----------------------------------------------------------------------
-# Modul-Hilfsfunktionen
+# Module-level helpers
 # ----------------------------------------------------------------------
 def _tag(node: Any) -> str | None:
     tag = getattr(node, "tag", None)
@@ -967,7 +971,7 @@ def _drop(node: Any, keep_tail: bool = False) -> None:
 
 
 def _unwrap(node: Any) -> None:
-    """Entfernt ein Element, behaelt aber dessen Inhalt an gleicher Stelle."""
+    """Removes an element but keeps its content in the same position."""
     parent = node.getparent()
     if parent is None:
         return
@@ -1000,11 +1004,10 @@ def _has_block_children(node: Any) -> bool:
     return any(_tag(child) not in _INLINE_TAGS and _tag(child) is not None for child in node)
 
 
-# Geschuetzte Leerzeichen ueberleben das Zusammenfassen: Browser behandeln
-# &nbsp; ebenso, und die franzoesische Typografie braucht das schmale
-# geschuetzte Leerzeichen vor dem schliessenden Guillemet. Als Escapes
-# geschrieben - im Quelltext waeren die Zeichen unsichtbar.
-PROTECTED_SPACES = "\u00a0\u202f\u2007"  # NBSP, schmales NBSP, Ziffernbreite
+# Protected spaces survive collapsing: browsers treat &nbsp; the same way,
+# and French typography needs the narrow no-break space before a closing
+# guillemet. Written as escapes - as literals they would be invisible.
+PROTECTED_SPACES = "\u00a0\u202f\u2007"  # NBSP, narrow NBSP, figure space
 _COLLAPSIBLE = re.compile(rf"[^\S{PROTECTED_SPACES}]+")
 _EDGE_SPACE = re.compile(rf"^[^\S{PROTECTED_SPACES}]+|[^\S{PROTECTED_SPACES}]+$")
 _LEADING_SPACE = re.compile(rf"^[^\S{PROTECTED_SPACES}]+")
@@ -1015,7 +1018,7 @@ def _collapse(text: str | None) -> str:
 
 
 def _collapse_soft(text: str | None) -> str:
-    """Wie HTML: Folgen von Leerraum werden zu einem Leerzeichen, Raender bleiben."""
+    """Like HTML: runs of whitespace become one space, edges are kept."""
     return _COLLAPSIBLE.sub(" ", text or "")
 
 
@@ -1040,7 +1043,7 @@ def _int_or(value: Any, default: int) -> int:
 
 
 def _parse_length(value: Any) -> float | None:
-    """Interpretiert width-Angaben als Millimeter (px werden bei 96 dpi gerechnet)."""
+    """Reads a width attribute as millimetres (px assumes 96 dpi)."""
     if not value:
         return None
     text = str(value).strip().lower()
@@ -1054,7 +1057,7 @@ def _parse_length(value: Any) -> float | None:
 
 
 def _is_standalone_image(node: Any) -> bool:
-    """True, wenn das Bild allein in seinem Absatz steht."""
+    """True when the image sits alone in its paragraph."""
     parent = node.getparent()
     if parent is None:
         return False
@@ -1076,7 +1079,7 @@ def _clear_cell(cell: _Cell) -> None:
 def _fragments_by_line(
     fragments: list[Any], line_count: int
 ) -> list[list[tuple[str, str | None, bool, bool]]]:
-    """Verteilt Pygments-Fragmente auf Zeilen (Runs duerfen kein \\n enthalten)."""
+    """Spreads Pygments fragments across lines (a run may not contain \\n)."""
     lines: list[list[tuple[str, str | None, bool, bool]]] = [[] for _ in range(line_count)]
     index = 0
     for fragment in fragments:

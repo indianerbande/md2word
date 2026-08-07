@@ -12,11 +12,11 @@ build/
 dist/
 *.manifest
 
-# Ergebnisse von Testlaeufen
+# Output of test runs
 examples/*.docx
 *.docx
 !tests/data/*.docx
 
-# Betriebssystem
+# Operating system
 .DS_Store
 Thumbs.db

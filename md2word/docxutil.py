@@ -1,8 +1,8 @@
-"""Low-Level-Helfer fuer OOXML-Konstrukte, die python-docx nicht direkt anbietet.
+"""Low-level helpers for OOXML constructs python-docx does not expose.
 
-Hier liegt alles, was direkt am XML arbeitet: Schattierungen, Rahmen,
-Hyperlinks, Lesezeichen, Feldfunktionen (Inhaltsverzeichnis, Seitenzahlen),
-mehrstufige Listen-Nummerierungen und echte Word-Fussnoten.
+Everything that works directly on the XML lives here: shading, borders,
+hyperlinks, bookmarks, field codes (table of contents, page numbers),
+multilevel list numbering and real Word footnotes.
 """
 
 from __future__ import annotations
@@ -29,10 +29,10 @@ NS_DECL = " ".join(f'xmlns:{prefix}="{uri}"' for prefix, uri in nsmap.items())
 
 
 # ----------------------------------------------------------------------
-# Allgemeine Element-Helfer
+# General element helpers
 # ----------------------------------------------------------------------
 def make_element(tag: str, **attrs: Any) -> Any:
-    """Erzeugt ein OOXML-Element mit w:-Attributen."""
+    """Creates an OOXML element with w: attributes."""
     element = OxmlElement(tag)
     for key, value in attrs.items():
         element.set(qn(key.replace("__", ":")), str(value))
@@ -40,7 +40,7 @@ def make_element(tag: str, **attrs: Any) -> Any:
 
 
 def get_or_add(parent: Any, tag: str, position: int | None = None) -> Any:
-    """Liefert das erste Kindelement `tag` oder legt es an."""
+    """Returns the first `tag` child element, creating it if absent."""
     found = parent.find(qn(tag))
     if found is None:
         found = OxmlElement(tag)
@@ -52,7 +52,7 @@ def get_or_add(parent: Any, tag: str, position: int | None = None) -> Any:
 
 
 def set_shading(element: Any, color: str, fill: str | None = None) -> None:
-    """Setzt eine Hintergrundfarbe (w:shd) auf pPr/rPr/tcPr."""
+    """Sets a background colour (w:shd) on pPr/rPr/tcPr."""
     shd = get_or_add(element, "w:shd")
     shd.set(qn("w:val"), "clear")
     shd.set(qn("w:color"), "auto")
@@ -68,7 +68,7 @@ def set_borders(
     space: int = 4,
     color: str = "auto",
 ) -> None:
-    """Setzt Rahmenlinien auf einen Absatz (pBdr) oder eine Zelle (tcBorders)."""
+    """Sets borders on a paragraph (pBdr) or a cell (tcBorders)."""
     borders = get_or_add(element, tag)
     order = ["top", "left", "bottom", "right", "insideH", "insideV"]
     wanted = set(edges)
@@ -86,7 +86,7 @@ def set_borders(
 
 
 def paragraph_properties(paragraph: Any) -> Any:
-    """Liefert das pPr-Element eines Absatzes (legt es bei Bedarf an)."""
+    """Returns a paragraph's pPr element, creating it if needed."""
     return paragraph._p.get_or_add_pPr()
 
 
@@ -99,7 +99,7 @@ def set_paragraph_border(paragraph: Any, **kwargs: Any) -> None:
 
 
 def keep_with_next(paragraph: Any, value: bool = True) -> None:
-    """Verhindert einen Seitenumbruch zwischen diesem und dem naechsten Absatz."""
+    """Prevents a page break between this paragraph and the next."""
     pPr = paragraph_properties(paragraph)
     node = get_or_add(pPr, "w:keepNext")
     node.set(qn("w:val"), "1" if value else "0")
@@ -124,7 +124,7 @@ def set_cell_vertical_alignment(cell: Any, value: str = "center") -> None:
 
 
 def add_page_break(paragraph: Any) -> None:
-    """Haengt einen harten Seitenumbruch an einen Absatz."""
+    """Appends a hard page break to a paragraph."""
     run = OxmlElement("w:r")
     br = OxmlElement("w:br")
     br.set(qn("w:type"), "page")
@@ -133,7 +133,7 @@ def add_page_break(paragraph: Any) -> None:
 
 
 def set_run_font(run: Any, name: str) -> None:
-    """Setzt die Schriftart inkl. East-Asian-/Complex-Script-Varianten."""
+    """Sets the font, including the East Asian and complex-script variants."""
     run.font.name = name
     rPr = run._r.get_or_add_rPr()
     rFonts = get_or_add(rPr, "w:rFonts")
@@ -155,18 +155,18 @@ def set_vertical_align(run: Any, value: str) -> None:
 
 
 def set_no_proof(run: Any) -> None:
-    """Schaltet Rechtschreib-/Grammatikpruefung fuer den Run ab (z. B. Code)."""
+    """Turns off spell and grammar checking for the run (e.g. code)."""
     get_or_add(run._r.get_or_add_rPr(), "w:noProof").set(qn("w:val"), "1")
 
 
 # ----------------------------------------------------------------------
-# Lesezeichen und Hyperlinks
+# Bookmarks and hyperlinks
 # ----------------------------------------------------------------------
 _slug_counter: dict[str, int] = {}
 
 
 def slugify(text: str, existing: set[str] | None = None) -> str:
-    """Erzeugt eine GitHub-aehnliche Anker-ID aus einem Ueberschriftentext."""
+    """Builds a GitHub-style anchor ID from a heading's text."""
     value = unicodedata.normalize("NFKD", text or "")
     value = value.replace("ß", "ss")
     value = "".join(ch for ch in value if not unicodedata.combining(ch))
@@ -184,7 +184,7 @@ def slugify(text: str, existing: set[str] | None = None) -> str:
 
 
 def sanitize_bookmark(name: str) -> str:
-    """Word-Lesezeichen: max. 40 Zeichen, Buchstaben/Ziffern/Unterstrich."""
+    """Word bookmarks: at most 40 characters, letters/digits/underscore."""
     clean = re.sub(r"[^\w]", "_", name, flags=re.U)
     if not clean or clean[0].isdigit():
         clean = "_" + clean
@@ -192,7 +192,7 @@ def sanitize_bookmark(name: str) -> str:
 
 
 def add_bookmark(paragraph: Any, name: str, bookmark_id: int) -> None:
-    """Umschliesst den Absatzinhalt mit einem Lesezeichen."""
+    """Wraps the paragraph's content in a bookmark."""
     safe = sanitize_bookmark(name)
     start = OxmlElement("w:bookmarkStart")
     start.set(qn("w:id"), str(bookmark_id))
@@ -206,7 +206,7 @@ def add_bookmark(paragraph: Any, name: str, bookmark_id: int) -> None:
 
 
 def add_external_hyperlink(paragraph: Any, url: str) -> Any:
-    """Legt ein leeres w:hyperlink-Element mit externer Beziehung an."""
+    """Creates an empty w:hyperlink element with an external relationship."""
     part = paragraph.part
     r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
     link = OxmlElement("w:hyperlink")
@@ -216,7 +216,7 @@ def add_external_hyperlink(paragraph: Any, url: str) -> Any:
 
 
 def add_internal_hyperlink(paragraph: Any, anchor: str) -> Any:
-    """Legt ein w:hyperlink-Element auf ein Lesezeichen im Dokument an."""
+    """Creates a w:hyperlink element pointing at a bookmark in the document."""
     link = OxmlElement("w:hyperlink")
     link.set(qn("w:anchor"), sanitize_bookmark(anchor))
     paragraph._p.append(link)
@@ -224,16 +224,16 @@ def add_internal_hyperlink(paragraph: Any, anchor: str) -> Any:
 
 
 def move_run_into(container: Any, run: Any) -> None:
-    """Verschiebt einen bereits erzeugten Run in ein Hyperlink-Element."""
+    """Moves an already created run into a hyperlink element."""
     run._r.getparent().remove(run._r)
     container.append(run._r)
 
 
 # ----------------------------------------------------------------------
-# Feldfunktionen (TOC, PAGE, NUMPAGES, ...)
+# Field codes (TOC, PAGE, NUMPAGES, ...)
 # ----------------------------------------------------------------------
 def add_field(paragraph: Any, instruction: str, placeholder: str = "", dirty: bool = True) -> None:
-    """Fuegt eine Word-Feldfunktion als Run-Sequenz in einen Absatz ein."""
+    """Inserts a Word field code into a paragraph as a run sequence."""
     begin = OxmlElement("w:r")
     fld_begin = OxmlElement("w:fldChar")
     fld_begin.set(qn("w:fldCharType"), "begin")
@@ -268,7 +268,7 @@ def add_field(paragraph: Any, instruction: str, placeholder: str = "", dirty: bo
 
 
 def force_field_update_on_open(document: Any) -> None:
-    """Setzt <w:updateFields/>, damit Word Felder beim Oeffnen neu berechnet."""
+    """Sets <w:updateFields/> so Word recomputes fields when opening."""
     settings = document.settings.element
     node = settings.find(qn("w:updateFields"))
     if node is None:
@@ -278,21 +278,21 @@ def force_field_update_on_open(document: Any) -> None:
 
 
 # ----------------------------------------------------------------------
-# Mehrstufige Listen-Nummerierung
+# Multilevel list numbering
 # ----------------------------------------------------------------------
 _BULLET_GLYPHS = [("", "Symbol"), ("o", "Courier New"), ("", "Wingdings")]
 _NUMBER_FORMATS = ["decimal", "lowerLetter", "lowerRoman"]
 
 
 class NumberingRegistry:
-    """Verwaltet abstractNum-/num-Definitionen in word/numbering.xml."""
+    """Manages abstractNum and num definitions in word/numbering.xml."""
 
     def __init__(self, document: Any) -> None:
         self._numbering = document.part.numbering_part.element
         self._bullet_abstract: int | None = None
         self._decimal_abstract: int | None = None
 
-    # -- interne Helfer -------------------------------------------------
+    # -- internal helpers ------------------------------------------------
     def _next_abstract_id(self) -> int:
         ids = [
             int(node.get(qn("w:abstractNumId")))
@@ -310,7 +310,7 @@ class NumberingRegistry:
         return max(ids, default=0) + 1
 
     def _insert_abstract(self, element: Any) -> None:
-        """abstractNum-Elemente muessen laut Schema vor den num-Elementen stehen."""
+        """The schema requires every abstractNum to precede every num."""
         existing = self._numbering.findall(qn("w:abstractNum"))
         if existing:
             existing[-1].addnext(element)
@@ -399,9 +399,9 @@ class NumberingRegistry:
         self._numbering.append(num)
         return num_id
 
-    # -- oeffentliche API ------------------------------------------------
+    # -- public API --------------------------------------------------------
     def new_list(self, ordered: bool, start_at: int = 1) -> int:
-        """Liefert eine numId fuer eine neue Liste (Nummerierung startet neu)."""
+        """Returns a numId for a new list (numbering restarts at 1)."""
         if ordered:
             if self._decimal_abstract is None:
                 self._decimal_abstract = self._build_abstract(ordered=True)
@@ -412,11 +412,11 @@ class NumberingRegistry:
         return self._create_num(self._bullet_abstract)
 
 
-MAX_LIST_LEVEL = 8  # Word kennt die Ebenen 0 bis 8
+MAX_LIST_LEVEL = 8  # Word knows levels 0 through 8
 
 
 def apply_numbering(paragraph: Any, num_id: int, level: int) -> None:
-    """Haengt einen Absatz an eine Listendefinition."""
+    """Attaches a paragraph to a list definition."""
     pPr = paragraph_properties(paragraph)
     numPr = get_or_add(pPr, "w:numPr")
     level = max(0, min(level, MAX_LIST_LEVEL))
@@ -426,10 +426,10 @@ def apply_numbering(paragraph: Any, num_id: int, level: int) -> None:
 
 
 # ----------------------------------------------------------------------
-# Ueberschriften-Nummerierung (1., 1.1, 1.1.1 ...)
+# Heading numbering (1., 1.1, 1.1.1 ...)
 # ----------------------------------------------------------------------
 def enable_heading_numbering(document: Any, depth: int = 3) -> None:
-    """Verknuepft die Ueberschriftenformate mit einer mehrstufigen Nummerierung."""
+    """Binds the heading styles to a multilevel numbering definition."""
     numbering = document.part.numbering_part.element
     registry = NumberingRegistry(document)
     abstract_id = registry._next_abstract_id()
@@ -496,7 +496,7 @@ def enable_heading_numbering(document: Any, depth: int = 3) -> None:
 
 
 # ----------------------------------------------------------------------
-# Echte Word-Fussnoten
+# Real Word footnotes
 # ----------------------------------------------------------------------
 _FOOTNOTES_SKELETON = (
     XML_DECL
@@ -512,7 +512,7 @@ _FOOTNOTES_SKELETON = (
 
 
 class FootnoteStore:
-    """Legt den Part word/footnotes.xml an und verwaltet die Fussnoten."""
+    """Creates the word/footnotes.xml part and manages the footnotes."""
 
     def __init__(self, document: Any) -> None:
         self._document = document
@@ -520,7 +520,7 @@ class FootnoteStore:
         self._next_id = self._highest_id() + 1
         self._ensure_settings()
 
-    # -- Aufbau ----------------------------------------------------------
+    # -- construction ------------------------------------------------------
     def _ensure_part(self) -> XmlPart:
         document_part = self._document.part
         for rel in document_part.rels.values():
@@ -546,7 +546,7 @@ class FootnoteStore:
         return max(ids, default=0)
 
     def _ensure_settings(self) -> None:
-        """Verweist in settings.xml auf Separator und Fortsetzungstrenner."""
+        """Points settings.xml at the separator and continuation separator."""
         settings = self._document.settings.element
         if settings.find(qn("w:footnotePr")) is not None:
             return
@@ -555,12 +555,12 @@ class FootnoteStore:
             ref = OxmlElement("w:footnote")
             ref.set(qn("w:id"), fid)
             fpr.append(ref)
-        # w:footnotePr muss vor den meisten anderen Settings stehen
+        # w:footnotePr has to precede most other settings
         settings.insert(0, fpr)
 
-    # -- Verwendung ------------------------------------------------------
+    # -- usage ---------------------------------------------------------------
     def add_footnote(self) -> tuple[int, Any]:
-        """Legt eine leere Fussnote an; liefert (id, erstes Absatz-Element)."""
+        """Creates an empty footnote; returns (id, first paragraph element)."""
         footnote_id = self._next_id
         self._next_id += 1
 
@@ -595,7 +595,7 @@ class FootnoteStore:
         return footnote_id, paragraph
 
     def add_paragraph_to(self, footnote_id: int) -> Any:
-        """Haengt einen weiteren Absatz an eine bestehende Fussnote an."""
+        """Appends another paragraph to an existing footnote."""
         for node in self._part.element.findall(qn("w:footnote")):
             if node.get(qn("w:id")) == str(footnote_id):
                 paragraph = OxmlElement("w:p")
@@ -610,7 +610,7 @@ class FootnoteStore:
 
     @staticmethod
     def add_reference(paragraph: Any, footnote_id: int) -> None:
-        """Setzt die hochgestellte Fussnotenziffer in den Fliesstext."""
+        """Places the superscript footnote number into the body text."""
         run = OxmlElement("w:r")
         rPr = OxmlElement("w:rPr")
         style = OxmlElement("w:rStyle")
@@ -629,7 +629,7 @@ class FootnoteStore:
 
 
 # ----------------------------------------------------------------------
-# Tabellen
+# Tables
 # ----------------------------------------------------------------------
 def set_table_layout_fixed(table: Any) -> None:
     tblPr = table._tbl.tblPr
@@ -638,7 +638,7 @@ def set_table_layout_fixed(table: Any) -> None:
 
 
 def set_repeat_header(row: Any) -> None:
-    """Wiederholt die Kopfzeile auf jeder Seite."""
+    """Repeats the header row on every page."""
     trPr = row._tr.get_or_add_trPr()
     get_or_add(trPr, "w:tblHeader").set(qn("w:val"), "true")
 
@@ -649,7 +649,7 @@ def prevent_row_split(row: Any) -> None:
 
 
 def set_cell_margins(table: Any, top: int = 60, start: int = 90, bottom: int = 60, end: int = 90) -> None:
-    """Innenabstaende aller Zellen in Twips."""
+    """Inner padding of every cell, in twips."""
     tblPr = table._tbl.tblPr
     margins = get_or_add(tblPr, "w:tblCellMar")
     for tag, value in (("w:top", top), ("w:start", start), ("w:bottom", bottom), ("w:end", end)):
@@ -659,19 +659,19 @@ def set_cell_margins(table: Any, top: int = 60, start: int = 90, bottom: int = 6
 
 
 # ----------------------------------------------------------------------
-# Nachbearbeitung
+# Post-processing
 # ----------------------------------------------------------------------
-# Geschuetzte Leerzeichen bleiben auch am Absatzrand stehen - wer sie
-# schreibt, meint sie.
+# Protected spaces survive even at a paragraph edge - whoever writes one
+# means it.
 PROTECTED_SPACES = "\u00a0\u202f\u2007"
 _EDGE_SPACE = re.compile(rf"^[^\S{PROTECTED_SPACES}]+|[^\S{PROTECTED_SPACES}]+$")
 
 
 def trim_paragraph_edges(root: Any, keep_styles: Iterable[str] = ()) -> None:
-    """Entfernt fuehrenden und nachlaufenden Leerraum in jedem Absatz.
+    """Removes leading and trailing whitespace from every paragraph.
 
-    HTML laesst Leerraum an Zeilenenden zu, Word zeigt ihn als sichtbare
-    Luecke. Codebloecke bleiben ausgenommen, dort ist Einrueckung Inhalt.
+    HTML tolerates whitespace at line ends; Word shows it as a visible gap.
+    Code blocks are exempt - there, indentation is content.
     """
     protected = set(keep_styles)
     for paragraph in root.iter(qn("w:p")):
@@ -700,10 +700,10 @@ def trim_paragraph_edges(root: Any, keep_styles: Iterable[str] = ()) -> None:
 
 
 # ----------------------------------------------------------------------
-# Sonstiges
+# Miscellaneous
 # ----------------------------------------------------------------------
 def set_document_language(document: Any, lang: str) -> None:
-    """Setzt die Bearbeitungssprache im Standard-Zeichenformat."""
+    """Sets the editing language on the default character style."""
     try:
         style = document.styles["Normal"]
     except KeyError:
@@ -714,7 +714,7 @@ def set_document_language(document: Any, lang: str) -> None:
 
 
 def set_compat_mode(document: Any) -> None:
-    """Markiert das Dokument als Word-2013+-Format (verhindert Kompatibilitaetsmodus)."""
+    """Marks the document as Word 2013+ format (avoids compatibility mode)."""
     settings = document.settings.element
     compat = get_or_add(settings, "w:compat")
     setting = OxmlElement("w:compatSetting")

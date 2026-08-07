@@ -1,66 +1,66 @@
 # md2word
 
-Kommandozeilen-Tool, das Markdown-Dateien in Microsoft-Word-Dokumente (`.docx`)
-konvertiert – ohne installiertes Word, ohne Pandoc, rein in Python.
+A command-line tool that converts Markdown files into Microsoft Word documents
+(`.docx`) — no Word installation, no Pandoc, pure Python.
 
-Das Ergebnis ist ein echtes OOXML-Dokument mit Formatvorlagen, Word-Fußnoten,
-klickbaren Querverweisen, aktualisierbarem Inhaltsverzeichnis und
-Seitenzahlfeldern. Word öffnet es ohne Reparaturhinweis, und alle Formatierungen
-bleiben nachträglich über die Formatvorlagen änderbar.
+The output is a genuine OOXML document with real styles, Word footnotes,
+clickable cross-references, an updatable table of contents and page-number
+fields. Word opens it without a repair prompt, and every bit of formatting stays
+editable through the document's styles.
 
 ---
 
-## Inhalt
+## Contents
 
-- [Funktionsumfang](#funktionsumfang)
+- [What it converts](#what-it-converts)
 - [Installation](#installation)
-- [Aufruf](#aufruf)
-- [Optionen](#optionen)
-- [YAML-Front-Matter](#yaml-front-matter)
-- [Eigenständiges Programm bauen (PyInstaller)](#eigenständiges-programm-bauen-pyinstaller)
-- [Grenzen](#grenzen)
-- [Entwicklung](#entwicklung)
+- [Usage](#usage)
+- [Options](#options)
+- [YAML front matter](#yaml-front-matter)
+- [Building a standalone executable (PyInstaller)](#building-a-standalone-executable-pyinstaller)
+- [Limitations](#limitations)
+- [Development](#development)
 
 ---
 
-## Funktionsumfang
+## What it converts
 
-| Markdown | Ergebnis im Word-Dokument |
-|:---------|:--------------------------|
-| `#` bis `######` | Formatvorlagen *Überschrift 1–6*, mit Lesezeichen für Querverweise |
-| `**fett**`, `*kursiv*`, `~~durchgestrichen~~` | Zeichenformatierung |
-| `` `Code` `` | Zeichenformat *Verbatim Char* mit Monospace-Schrift und Hintergrund |
-| ` ```python ` | Codeblock mit Syntaxhervorhebung (Pygments), Rahmen und Hintergrund |
-| `- Punkt` / `1. Punkt` | Echte Word-Listen mit eigener Nummerierung je Liste, bis 9 Ebenen |
-| `- [x] Aufgabe` | Aufgabenliste mit ☒/☐ |
-| `> Zitat` | Zitatformat mit farbigem Balken, gestaffelt bei Verschachtelung |
-| `\| Tabelle \|` | Word-Tabelle mit Kopfzeilenwiederholung, Spaltenausrichtung und passenden Spaltenbreiten |
-| `[Text](url)` | Externer Hyperlink |
-| `[Text](#abschnitt)` | Interner Verweis auf die Überschrift |
-| `![Bild](datei.png)` | Eingebettetes Bild, auf die Textbreite skaliert |
-| `Text[^1]` | **Echte Word-Fußnote** am Seitenende (nicht nur hochgestellter Text) |
-| `Begriff\n: Erklärung` | Definitionsliste |
-| `---` | Trennlinie |
-| `$a^2$`, `$$…$$` | Formeln als kursiver Cambria-Math-Text (siehe [Grenzen](#grenzen)) |
-| `<b>HTML</b>` | Rohes HTML wird übernommen (abschaltbar mit `--strip-html`) |
-| `<!-- pagebreak -->` | Harter Seitenumbruch |
+| Markdown | Result in the Word document |
+|:---------|:----------------------------|
+| `#` through `######` | *Heading 1–6* styles, each with a bookmark for cross-references |
+| `**bold**`, `*italic*`, `~~strikethrough~~` | Character formatting |
+| `` `code` `` | *Verbatim Char* style with a monospace font and shading |
+| ` ```python ` | Code block with syntax highlighting (Pygments), border and background |
+| `- item` / `1. item` | Real Word lists, a fresh numbering sequence per list, up to 9 levels |
+| `- [x] task` | Task list rendered with ☒/☐ |
+| `> quote` | Quote style with a coloured bar, indented further when nested |
+| `\| table \|` | Word table with a repeating header row, column alignment and fitted column widths |
+| `[text](url)` | External hyperlink |
+| `[text](#section)` | Internal link to the heading |
+| `![image](file.png)` | Embedded image, scaled to the text width |
+| `text[^1]` | A **real Word footnote** at the bottom of the page (not just superscript text) |
+| `Term\n: Definition` | Definition list |
+| `---` | Horizontal rule |
+| `$a^2$`, `$$…$$` | Formulas as italic Cambria Math text (see [Limitations](#limitations)) |
+| `<b>HTML</b>` | Raw HTML is carried through (disable with `--strip-html`) |
+| `<!-- pagebreak -->` | Hard page break |
 
-Dazu kommen: Titelseite, Inhaltsverzeichnis, nummerierte Überschriften,
-Kopf-/Fußzeilen mit Seitenzahlen, vier Farbschemata, freie Schrift- und
-Farbwahl, Papierformate von A5 bis Legal, Stapelverarbeitung und
-Dokumenteigenschaften aus dem Front Matter.
+On top of that: title page, table of contents, numbered headings, headers and
+footers with page numbers, four themes, free choice of fonts and colours, paper
+sizes from A5 to Legal, batch conversion, and document properties taken from the
+front matter.
 
 ---
 
 ## Installation
 
-Vorausgesetzt wird **Python 3.9 oder neuer**. Getestet mit 3.9.6 und 3.14.6 auf
-macOS; der Code ist plattformunabhängig.
+Requires **Python 3.9 or newer**. Tested on 3.9.6 and 3.14.6 under macOS; the
+code itself is platform-independent.
 
-### Variante A – als Python-Paket (empfohlen)
+### Option A — as a Python package (recommended)
 
-Am saubersten in einer virtuellen Umgebung, damit die Abhängigkeiten nicht mit
-anderen Projekten kollidieren:
+Cleanest inside a virtual environment, so the dependencies stay out of your
+other projects:
 
 ```bash
 python3 -m venv .venv
@@ -70,130 +70,129 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Unter Windows lautet die zweite Zeile `.venv\Scripts\activate`.
+On Windows the second line is `.venv\Scripts\activate`.
 
-Dann das Paket installieren:
+Then install the package:
 
 ```bash
 pip install .
 ```
 
-Danach steht der Befehl `md2word` zur Verfügung:
+The `md2word` command is now available:
 
 ```bash
 md2word --version
 ```
 
-### Variante B – ohne Installation direkt aus dem Quellverzeichnis
+### Option B — straight from the source tree, without installing
 
-Nur die Abhängigkeiten installieren und das Paket als Modul aufrufen. Der Aufruf
-muss dann **aus dem Projektverzeichnis** heraus erfolgen, weil `md2word` selbst
-nicht installiert wird:
+Install only the dependencies and call the package as a module. You then have to
+run it **from the project directory**, since `md2word` itself is not installed:
 
 ```bash
 pip install -r requirements.txt
 ```
 
 ```bash
-python -m md2word datei.md
+python -m md2word file.md
 ```
 
-### Variante C – systemweit mit pipx
+### Option C — system-wide with pipx
 
-`pipx` installiert das Tool in eine eigene Umgebung und legt den Befehl trotzdem
-global ab – der bequemste Weg, wenn md2word überall verfügbar sein soll:
+`pipx` installs the tool into its own environment while still putting the
+command on your `PATH` — the most convenient route if you want md2word
+available everywhere:
 
 ```bash
 pipx install .
 ```
 
-### Variante D – eigenständiges Programm, ganz ohne Python
+### Option D — a standalone executable, no Python at all
 
-Siehe [Eigenständiges Programm bauen](#eigenständiges-programm-bauen-pyinstaller).
+See [Building a standalone executable](#building-a-standalone-executable-pyinstaller).
 
-### Optionale Zusätze
+### Optional extras
 
-SVG-Grafiken benötigen ein zusätzliches Paket, weil Word das Format nicht
-einbetten kann und es vorher in PNG umgewandelt werden muss:
+SVG graphics need one additional package, because Word cannot embed the format
+and it has to be converted to PNG first:
 
 ```bash
 pip install ".[svg]"
 ```
 
-`cairosvg` setzt die Systembibliothek Cairo voraus – unter macOS
-`brew install cairo`, unter Debian/Ubuntu `apt install libcairo2`. Ohne das
-Extra überspringt md2word SVG-Bilder mit einem Hinweis, statt abzubrechen.
-Bewusst nicht in den Grundabhängigkeiten, damit ein gebautes Programm nicht von
-nativen Bibliotheken des Zielsystems abhängt.
+`cairosvg` depends on the Cairo system library — `brew install cairo` on macOS,
+`apt install libcairo2` on Debian/Ubuntu. Without the extra, md2word skips SVG
+images with a warning instead of failing. It is deliberately kept out of the
+core dependencies so that a built executable does not depend on native libraries
+of the target system.
 
 ---
 
-## Aufruf
+## Usage
 
-### Der einfachste Fall
-
-```bash
-md2word bericht.md
-```
-
-Erzeugt `bericht.docx` neben der Quelldatei. Eine bereits vorhandene Zieldatei
-wird **nicht** überschrieben – dafür braucht es `--force`.
-
-### Zieldatei oder Zielordner angeben
+### The simplest case
 
 ```bash
-md2word bericht.md -o ~/Desktop/Quartalsbericht.docx
+md2word report.md
+```
+
+Writes `report.docx` next to the source file. An existing target file is **not**
+overwritten — that takes `--force`.
+
+### Choosing an output file or directory
+
+```bash
+md2word report.md -o ~/Desktop/Quarterly-Report.docx
 ```
 
 ```bash
-md2word bericht.md --output-dir build
+md2word report.md --output-dir build
 ```
 
-### Mehrere Dateien auf einmal
+### Several files at once
 
 ```bash
-md2word kapitel/*.md --output-dir build --force
+md2word chapters/*.md --output-dir build --force
 ```
 
-### Aus einer Pipe lesen
+### Reading from a pipe
 
 ```bash
-cat notizen.md | md2word - -o notizen.docx
+cat notes.md | md2word - -o notes.docx
 ```
 
-### Ein vollständig ausgestattetes Dokument
+### A fully equipped document
 
 ```bash
-md2word handbuch.md --title-page --toc --number-headings --page-numbers --break-on-h1 --theme modern
+md2word manual.md --title-page --toc --number-headings --page-numbers --break-on-h1 --theme modern
 ```
 
-Das ergibt: Titelseite aus den Metadaten, Inhaltsverzeichnis auf eigener Seite,
-durchnummerierte Überschriften (1., 1.1, 1.1.1), Seitenzahlen in der Fußzeile
-und einen Seitenumbruch vor jedem Hauptkapitel.
+That yields: a title page built from the metadata, a table of contents on its own
+page, numbered headings (1., 1.1, 1.1.1), page numbers in the footer, and a page
+break before every top-level chapter.
 
-> **Hinweis zum Inhaltsverzeichnis:** Word berechnet Feldfunktionen erst beim
-> Öffnen. md2word setzt das Kennzeichen dafür, sodass Word beim ersten Öffnen
-> fragt, ob die Felder aktualisiert werden sollen – hier mit *Ja* antworten.
-> Nachträglich geht es jederzeit mit Rechtsklick auf das Verzeichnis →
-> *Felder aktualisieren* (oder `Strg`/`Cmd` + `A`, dann `F9`).
+> **A note on the table of contents:** Word only evaluates field codes when the
+> document is opened. md2word sets the flag that asks it to, so Word will offer
+> to update the fields on first open — answer *Yes*. You can also do it any time
+> later: right-click the table of contents → *Update Field* (or `Ctrl`/`Cmd` + `A`,
+> then `F9`).
 
-### Ein eigenes Corporate Design verwenden
+### Applying your own corporate design
 
-Am elegantesten über ein Referenzdokument: eine leere `.docx`, in der die
-Formatvorlagen *Standard*, *Überschrift 1–6*, *Zitat* usw. bereits so aussehen,
-wie sie sollen.
+The most elegant route is a reference document: an empty `.docx` in which the
+*Normal*, *Heading 1–6*, *Quote* and similar styles already look the way you
+want them.
 
 ```bash
-md2word bericht.md --reference-doc vorlage.docx
+md2word report.md --reference-doc template.docx
 ```
 
-md2word übernimmt daraus alle vorhandenen Formatvorlagen samt Seitenlayout
-unverändert und ergänzt nur, was noch fehlt (etwa das Codeblock-Format). Der
-Inhalt der Vorlage wird verworfen. Da die Formatvorlagen dieselben Namen tragen
-wie in Pandocs Referenzdokument, lässt sich ein für Pandoc erstelltes Template
-direkt weiterverwenden.
+md2word adopts every style it finds there, along with the page layout, and only
+adds what is missing (the code-block style, for instance). The template's
+content is discarded. Because the styles carry the same names as in Pandoc's
+reference document, a template built for Pandoc works here unchanged.
 
-### Aussehen direkt auf der Kommandozeile bestimmen
+### Setting the appearance from the command line
 
 ```bash
 md2word text.md --body-font "Georgia" --heading-font "Helvetica Neue" --font-size 11.5 --line-spacing 1.3 --accent 8C1D40
@@ -203,7 +202,7 @@ md2word text.md --body-font "Georgia" --heading-font "Helvetica Neue" --font-siz
 md2word text.md --page-size a5 --margin 15 --pygments-style dracula
 ```
 
-Verfügbare Farbschemata für Quelltext auflisten:
+List the available syntax colour schemes:
 
 ```bash
 md2word --list-pygments-styles
@@ -211,112 +210,121 @@ md2word --list-pygments-styles
 
 ---
 
-## Optionen
+## Options
 
-### Ein- und Ausgabe
+### Input and output
 
-| Option | Bedeutung |
-|:-------|:----------|
-| `DATEI …` | Eine oder mehrere Markdown-Dateien; `-` liest von der Standardeingabe |
-| `-o`, `--output PFAD` | Zieldatei (nur bei genau einer Eingabedatei) |
-| `-d`, `--output-dir ORDNER` | Zielordner für alle Ausgaben, wird bei Bedarf angelegt |
-| `-f`, `--force` | Vorhandene Zieldateien überschreiben |
-| `-q`, `--quiet` | Keine Statusmeldungen |
-| `-v`, `--verbose` | Ausführliche Ausgabe samt vollständigem Fehlerbericht |
-| `--version` | Version ausgeben |
+| Option | Meaning |
+|:-------|:--------|
+| `FILE …` | One or more Markdown files; `-` reads from standard input |
+| `-o`, `--output PATH` | Target file (only with exactly one input file) |
+| `-d`, `--output-dir DIR` | Target directory for all output, created if needed |
+| `-f`, `--force` | Overwrite existing target files |
+| `-q`, `--quiet` | Suppress status messages |
+| `-v`, `--verbose` | Verbose output including full tracebacks |
+| `--version` | Print the version |
 
-### Seitenlayout
+### Page layout
 
-| Option | Standard | Bedeutung |
-|:-------|:---------|:----------|
-| `--page-size {a3,a4,a5,letter,legal}` | `a4` | Papierformat |
-| `--landscape` | aus | Querformat |
-| `--margin MM` | 25 | Alle vier Seitenränder |
-| `--margin-top/-bottom/-left/-right MM` | 25 | Einzelner Rand, schlägt `--margin` |
+| Option | Default | Meaning |
+|:-------|:--------|:--------|
+| `--page-size {a3,a4,a5,letter,legal}` | `a4` | Paper size |
+| `--landscape` | off | Landscape orientation |
+| `--margin MM` | 25 | All four page margins |
+| `--margin-top/-bottom/-left/-right MM` | 25 | A single margin; beats `--margin` |
 
-### Typografie
+### Typography
 
-| Option | Standard | Bedeutung |
-|:-------|:---------|:----------|
-| `--theme {default,classic,modern,mono}` | `default` | Farb- und Schriftschema |
-| `--body-font NAME` | aus dem Schema | Schriftart des Fließtextes |
-| `--heading-font NAME` | aus dem Schema | Schriftart der Überschriften |
-| `--code-font NAME` | aus dem Schema | Schriftart für Quelltext |
-| `--font-size PT` | 11 | Grundschriftgröße |
-| `--code-font-size PT` | 9.5 | Schriftgröße im Code |
-| `--line-spacing FAKTOR` | 1.15 | Zeilenabstand |
-| `--accent HEX` | aus dem Schema | Akzentfarbe für Linien und Zitatbalken |
-| `--link-color HEX` | aus dem Schema | Farbe für Hyperlinks |
-| `--code-bg HEX` | aus dem Schema | Hintergrund von Codeblöcken |
+| Option | Default | Meaning |
+|:-------|:--------|:--------|
+| `--theme {default,classic,modern,mono}` | `default` | Colour and font scheme |
+| `--body-font NAME` | from the theme | Body text font |
+| `--heading-font NAME` | from the theme | Heading font |
+| `--code-font NAME` | from the theme | Font for source code |
+| `--font-size PT` | 11 | Base font size |
+| `--code-font-size PT` | 9.5 | Font size inside code |
+| `--line-spacing FACTOR` | 1.15 | Line spacing |
+| `--accent HEX` | from the theme | Accent colour for rules and quote bars |
+| `--link-color HEX` | from the theme | Hyperlink colour |
+| `--code-bg HEX` | from the theme | Background of code blocks |
 
-Die vier Schemata: `default` (Calibri, Blau), `classic` (Times New Roman,
-Schwarz), `modern` (Segoe UI, kräftiges Blau), `mono` (Arial, Graustufen).
+The four themes: `default` (Calibri, blue), `classic` (Times New Roman, black),
+`modern` (Segoe UI, strong blue), `mono` (Arial, greyscale).
 
-### Dokumentstruktur
+### Document structure
 
-| Option | Bedeutung |
-|:-------|:----------|
-| `--toc` | Inhaltsverzeichnis auf eigener Seite voranstellen |
-| `--toc-depth N` | Erfasste Überschriftenebenen (Standard 3) |
-| `--toc-title TEXT` | Überschrift des Verzeichnisses (Standard „Inhaltsverzeichnis") |
-| `--title-page` | Titelseite aus Titel, Untertitel, Verfasser und Datum |
-| `--number-headings` | Überschriften automatisch nummerieren (1., 1.1, 1.1.1) |
-| `--page-numbers` | Seitenzahlen als „Seite / Gesamt" in die Fußzeile |
-| `--header-text TEXT` | Text der Kopfzeile |
-| `--footer-text TEXT` | Text der Fußzeile |
-| `--break-on-h1` | Seitenumbruch vor jeder Überschrift der Ebene 1 |
+| Option | Meaning |
+|:-------|:--------|
+| `--toc` | Prepend a table of contents on its own page |
+| `--toc-depth N` | Heading levels to include (default 3) |
+| `--toc-title TEXT` | Heading above the table of contents (default follows `--lang`) |
+| `--title-page` | Build a title page from title, subtitle, author and date |
+| `--number-headings` | Number headings automatically (1., 1.1, 1.1.1) |
+| `--page-numbers` | Page numbers as "page / total" in the footer |
+| `--header-text TEXT` | Header text |
+| `--footer-text TEXT` | Footer text |
+| `--break-on-h1` | Page break before every level-1 heading |
 
-### Inhalte
+### Content
 
-| Option | Standard | Bedeutung |
-|:-------|:---------|:----------|
-| `--no-highlight` | aus | Syntaxhervorhebung abschalten |
-| `--pygments-style NAME` | `friendly` | Farbschema für Quelltext |
-| `--list-pygments-styles` | – | Verfügbare Farbschemata auflisten |
-| `--no-remote-images` | aus | Bilder von `http(s)`-Adressen nicht laden |
-| `--max-image-width MM` | Textbreite | Obergrenze für Bildbreiten |
-| `--captions {title,alt,none}` | `title` | Woraus Bildunterschriften entstehen |
-| `--footnotes {footnotes,endnotes}` | `footnotes` | Echte Fußnoten oder gesammelte Anmerkungen am Ende |
-| `--strip-html` | aus | Rohes HTML ignorieren statt übernehmen |
-| `--lang CODE` | `de-DE` | Dokumentsprache; steuert auch die Anführungszeichen |
+| Option | Default | Meaning |
+|:-------|:--------|:--------|
+| `--no-highlight` | off | Turn off syntax highlighting |
+| `--pygments-style NAME` | `friendly` | Colour scheme for source code |
+| `--list-pygments-styles` | – | List the available colour schemes |
+| `--no-remote-images` | off | Do not fetch images from `http(s)` addresses |
+| `--max-image-width MM` | text width | Upper bound for image widths |
+| `--captions {title,alt,none}` | `title` | What image captions are made from |
+| `--footnotes {footnotes,endnotes}` | `footnotes` | Real footnotes, or notes collected at the end |
+| `--strip-html` | off | Ignore raw HTML instead of carrying it through |
+| `--lang CODE` | `en-US` | Document language; drives quotation marks and built-in headings |
 
-Zu `--captions`: Standardmäßig wird nur der Titel in Anführungszeichen zur
-Bildunterschrift, also `![Alt](bild.png "Abbildung 1")` → *Abbildung 1*. Mit
-`alt` dient ersatzweise der Alternativtext als Unterschrift, mit `none` gibt es
-gar keine.
+On `--captions`: by default only the quoted title becomes a caption, so
+`![alt](image.png "Figure 1")` → *Figure 1*. With `alt` the alternative text is
+used as a fallback caption; with `none` there are no captions at all.
 
-Zur Sprache: `de` und verwandte Sprachen bekommen „deutsche“ Anführungszeichen,
-`fr` französische « mit schmalem Abstand », `es`, `it`, `ru` und weitere
-«Guillemets ohne Abstand», alle übrigen “englische”. Geschützte Leerzeichen aus
-der Quelle bleiben dabei erhalten.
+`--lang` does two things. It picks the quotation marks the typographer
+inserts — `de` and related languages get „German“ ones, `fr` French « ones with
+a narrow space », `es`, `it`, `ru` and others «guillemets without the space»,
+everything else “English” ones. Non-breaking spaces in the source are preserved
+either way.
 
-### Metadaten
+It also selects the language of the handful of strings md2word writes *into* the
+document: the table-of-contents heading, the endnotes heading, and the
+placeholder shown for an image that could not be loaded. English, German,
+French, Spanish and Italian are translated; any other language falls back to
+English. Adding one is a single dictionary entry in `md2word/i18n.py`.
+
+```bash
+md2word bericht.md --lang de-DE    # „Inhaltsverzeichnis“, German quotes
+```
+
+### Metadata
 
 `--title`, `--subtitle`, `--author`, `--date`, `--subject`, `--keywords`
 
-Landen in den Dokumenteigenschaften und – bei `--title-page` – auf der
-Titelseite. Angaben auf der Kommandozeile haben Vorrang vor dem Front Matter.
+These end up in the document properties and — with `--title-page` — on the title
+page. Values given on the command line take precedence over the front matter.
 
-### Erweitert
+### Advanced
 
-`--reference-doc DATEI` – bestehendes `.docx` als Formatvorlage.
+`--reference-doc FILE` — use an existing `.docx` as a style template.
 
 ---
 
-## YAML-Front-Matter
+## YAML front matter
 
-Metadaten und die meisten Layoutoptionen lassen sich auch in die Datei selbst
-schreiben. Das ist praktisch, weil das Dokument dann ohne lange Befehlszeile
-immer gleich aussieht:
+Metadata and most layout options can live in the file itself. That is handy
+because the document then looks the same every time without a long command line:
 
 ```markdown
 ---
-title: Projektbericht Q3
-subtitle: Stand der Arbeitspakete
+title: Quarterly Report Q3
+subtitle: Status of the work packages
 author: Jane Doe
 date: 2026-08-07
-keywords: Projekt, Bericht, Q3
-lang: de-AT
+keywords: project, report, Q3
+lang: en-US
 
 toc: true
 toc_depth: 2
@@ -325,33 +333,32 @@ page_numbers: true
 number_headings: true
 theme: modern
 page_size: a4
-footer_text: Vertraulich – nur für den internen Gebrauch
+footer_text: Confidential — internal use only
 ---
 
-# Ausgangslage
+# Background
 
-Der eigentliche Text beginnt hier.
+The actual text starts here.
 ```
 
-Erkannt werden die Metadaten `title`, `subtitle`, `author` (auch als Liste),
-`date`, `subject`/`description`, `keywords`/`tags`, `comments`, `lang`/`language`
-sowie die Optionen `toc`, `toc_depth`, `toc_title`, `title_page`,
+Recognised metadata: `title`, `subtitle`, `author` (a list works too), `date`,
+`subject`/`description`, `keywords`/`tags`, `comments`, `lang`/`language`.
+Recognised options: `toc`, `toc_depth`, `toc_title`, `title_page`,
 `number_headings`, `page_numbers`, `header_text`, `footer_text`, `break_on_h1`,
 `page_size`, `landscape`, `theme`, `font_size`, `body_font`, `heading_font`,
-`code_font`, `highlight` und `pygments_style`.
+`code_font`, `highlight` and `pygments_style`.
 
-Unbekannte Schlüssel werden stillschweigend ignoriert – eigene Projektfelder
-stören also nicht. Was auf der Kommandozeile explizit angegeben wird, gewinnt
-gegen das Front Matter.
+Unknown keys are ignored silently, so your own project fields do nothing but sit
+there. Anything given explicitly on the command line wins over the front matter.
 
 ---
 
-## Eigenständiges Programm bauen (PyInstaller)
+## Building a standalone executable (PyInstaller)
 
-Ja, das funktioniert – und ist getestet. Damit läuft md2word auf Rechnern ohne
-Python-Installation.
+Yes, this works — and it is tested. It lets md2word run on machines without a
+Python installation.
 
-### Bauen
+### Building
 
 ```bash
 pip install ".[build]"
@@ -361,118 +368,116 @@ pip install ".[build]"
 python build.py
 ```
 
-Das Skript prüft die Abhängigkeiten, ruft PyInstaller mit `md2word.spec` auf und
-macht anschließend einen Probelauf: Es konvertiert ein Testdokument mit
-Überschriften, Liste, Tabelle, Codeblock, Fußnote und Inhaltsverzeichnis und
-prüft, ob im Ergebnis alle erwarteten Bestandteile stecken. Erst dann gilt der
-Bau als erfolgreich.
+The script checks the dependencies, runs PyInstaller against `md2word.spec`, and
+then performs a smoke test: it converts a document containing headings, a list,
+a table, a code block, a footnote and a table of contents, and verifies that the
+result actually contains every expected part. Only then does the build count as
+successful.
 
-### Die zwei Bauarten
+### The two build modes
 
 ```bash
-python build.py            # ein Verzeichnis (Voreinstellung)
+python build.py            # one directory (the default)
 ```
 
 ```bash
-python build.py --onefile  # eine einzelne Datei
+python build.py --onefile  # a single file
 ```
 
-Gemessen auf einem Mac mit Apple Silicon, jeweils eine vollständige
-Konvertierung des mitgelieferten `examples/demo.md`:
+Measured on an Apple Silicon Mac, each figure being one full conversion of the
+bundled `examples/demo.md`:
 
-| Bauart | Ergebnis | Größe | Zeit pro Aufruf |
-|:-------|:---------|------:|----------------:|
-| Verzeichnis (Standard) | `dist/md2word/md2word` | 68 MB | **ca. 0,3 s** |
-| Einzeldatei | `dist/md2word` | 21 MB | ca. 6,5 s |
+| Mode | Result | Size | Time per invocation |
+|:-----|:-------|-----:|--------------------:|
+| Directory (default) | `dist/md2word/md2word` | 68 MB | **approx. 0.3 s** |
+| Single file | `dist/md2word` | 21 MB | approx. 6.5 s |
 
-Der große Unterschied ist kein Messfehler: Die Einzeldatei entpackt sich bei
-**jedem** Start in einen temporären Ordner, und macOS prüft dabei jede der rund
-hundert enthaltenen Bibliotheken einzeln. Auf Windows und Linux fällt der
-Aufschlag deutlich geringer aus, bleibt aber spürbar.
+The gap is not a measurement error: the single file unpacks itself into a
+temporary folder on **every** start, and macOS inspects each of the roughly one
+hundred bundled libraries as it does. On Windows and Linux the penalty is much
+smaller, but still noticeable.
 
-**Empfehlung:** Für die tägliche Arbeit die Verzeichnisvariante. Die Einzeldatei
-lohnt sich, wenn das Programm einfach weitergegeben werden soll – dann zählt
-Bequemlichkeit mehr als die Startzeit.
+**Recommendation:** use the directory build for day-to-day work. The single file
+pays off when you simply want to hand the program to someone — then convenience
+outweighs startup time.
 
-### Ergebnisse je Betriebssystem
+### Results per operating system
 
-| System | Datei | Verwendung |
-|:-------|:------|:-----------|
-| Windows | `dist\md2word\md2word.exe` bzw. `dist\md2word.exe` | Direkt im Terminal, oder Ordner in `PATH` aufnehmen |
-| macOS | `dist/md2word/md2word` bzw. `dist/md2word` | Unix-Programm für das Terminal |
-| Linux | `dist/md2word/md2word` bzw. `dist/md2word` | Wie unter macOS |
+| System | File | How to use it |
+|:-------|:-----|:--------------|
+| Windows | `dist\md2word\md2word.exe` or `dist\md2word.exe` | Run it in a terminal, or add the folder to `PATH` |
+| macOS | `dist/md2word/md2word` or `dist/md2word` | A Unix executable for the terminal |
+| Linux | `dist/md2word/md2word` or `dist/md2word` | Same as macOS |
 
-**PyInstaller kann nicht für fremde Systeme bauen.** Die Windows-`.exe` muss auf
-einem Windows-Rechner entstehen, das macOS-Programm auf einem Mac. Für alle drei
-Plattformen aus einem Rutsch braucht es eine CI mit entsprechenden Runnern
-(z. B. GitHub Actions mit `windows-latest`, `macos-latest` und `ubuntu-latest`).
+**PyInstaller cannot cross-build.** The Windows `.exe` has to be built on
+Windows, the macOS executable on a Mac. To produce all three in one go you need
+CI with matching runners (GitHub Actions with `windows-latest`, `macos-latest`
+and `ubuntu-latest`, for example).
 
-### Warum unter macOS keine `.app`?
+### Why no `.app` on macOS?
 
-Ein `.app`-Bundle ist für Programme mit Fenster gedacht. Beim Doppelklick
-startet es ohne Terminal, kann also weder Argumente entgegennehmen noch etwas
-ausgeben – für ein Kommandozeilenwerkzeug ist das nutzlos. Die richtige Form
-unter macOS ist das schlichte Unix-Programm, das oben entsteht. Es lässt sich
-wie jedes andere Kommando behandeln:
+An `.app` bundle is meant for windowed programs. Double-clicking one starts it
+without a terminal, so it can neither take arguments nor print anything — which
+makes it useless for a command-line tool. The right form on macOS is the plain
+Unix executable produced above. Treat it like any other command:
 
 ```bash
 sudo cp -R dist/md2word /usr/local/lib/md2word && sudo ln -sf /usr/local/lib/md2word/md2word /usr/local/bin/md2word
 ```
 
-Danach ist `md2word` überall im Terminal verfügbar.
+After that `md2word` is available in any terminal.
 
-### Gatekeeper unter macOS
+### Gatekeeper on macOS
 
-Das gebaute Programm ist nicht mit einer Entwickler-ID signiert. Beim ersten
-Start blockiert macOS es deshalb möglicherweise. Freigeben mit:
+The built program is not signed with a Developer ID, so macOS may block it on
+first launch. Clear the quarantine flag with:
 
 ```bash
 xattr -dr com.apple.quarantine dist/md2word
 ```
 
-Soll das Programm weitergegeben werden, führt an einer Signatur und
-Notarisierung mit einem Apple-Entwicklerkonto kein Weg vorbei
-(`codesign --deep --sign "Developer ID Application: …"`, danach `notarytool`).
+If you intend to distribute the program, there is no way around signing and
+notarising it with an Apple developer account (`codesign --deep --sign
+"Developer ID Application: …"`, then `notarytool`).
 
-### Was in der `md2word.spec` wichtig ist
+### What matters in `md2word.spec`
 
-Zwei Stolperstellen sind dort bereits gelöst – wer die Spec anpasst, sollte sie
-kennen:
+Three pitfalls are already solved there — worth knowing if you adapt the spec:
 
-1. **Die Word-Grundvorlage von python-docx** liegt als Paketdatei unter
-   `docx/templates/` und wird mit `collect_data_files` eingesammelt. Ohne sie
-   scheitert jeder Dokumentaufbau.
-2. **Ein Platzhalter in `docx/parts/`.** Die Module dort bilden ihre
-   Vorlagenpfade als `__file__ + "/../templates/…"`. Im Bundle liegt in
-   `docx/parts/` normalerweise keine Datei, das Verzeichnis existiert also
-   nicht – und dann lässt sich das `..` nicht auflösen. Ohne diesen Platzhalter
-   bricht das gebaute Programm ab, sobald eine Kopf- oder Fußzeile,
-   Seitenzahlen oder Kommentare ins Spiel kommen.
-3. **Pygments** lädt Lexer und Farbschemata erst zur Laufzeit über
-   Namenstabellen. Sie müssen mit `collect_submodules` als versteckte Importe
-   angemeldet werden, sonst gibt es keine Syntaxhervorhebung.
+1. **python-docx's base Word template** lives as a package file under
+   `docx/templates/` and is picked up with `collect_data_files`. Without it,
+   building any document fails.
+2. **A placeholder in `docx/parts/`.** The modules there construct their
+   template paths as `__file__ + "/../templates/…"`. In the bundle there is
+   normally no file in `docx/parts/`, so the directory does not exist — and then
+   the `..` cannot be resolved. Without the placeholder, the built program dies
+   the moment a header, footer, page number or comment comes into play.
+3. **Pygments** resolves lexers and colour schemes at runtime through name
+   tables. They have to be registered as hidden imports via
+   `collect_submodules`, otherwise there is no syntax highlighting at all.
 
 ---
 
-## Grenzen
+## Limitations
 
-- **Formeln** werden als kursiver Text in Cambria Math übernommen, nicht als
-  bearbeitbare Word-Formel (OMML). Für gesetzte Formeln ist Pandoc mit
-  `--to docx` die bessere Wahl. md2word weist beim Konvertieren darauf hin.
-- **SVG** kann Word nicht direkt einbetten. Mit dem optionalen Paket `cairosvg`
-  wandelt md2word SVG automatisch in PNG um, ohne bleibt das Bild aus.
-- **Verschachtelte Zitate** werden über zunehmende Einzüge dargestellt, weil
-  Word keine echte Zitatverschachtelung kennt.
-- **Sehr breite Tabellen** werden auf den Satzspiegel gestaucht. Ab etwa zehn
-  Spalten empfiehlt sich `--landscape` oder ein kleinerer `--font-size`.
-- **Listen** unterstützen bis zu neun Ebenen – das ist die Grenze von Word
-  selbst. Tiefere Verschachtelungen landen auf Ebene neun.
-- Word aktualisiert **Inhaltsverzeichnis und Seitenzahlen** erst beim Öffnen
-  bzw. auf Anforderung; das ist so vorgesehen und keine Fehlfunktion.
+- **Formulas** are carried over as italic Cambria Math text, not as an editable
+  Word equation (OMML). For typeset mathematics, Pandoc with `--to docx` is the
+  better choice. md2word says so during conversion.
+- **SVG** cannot be embedded by Word directly. With the optional `cairosvg`
+  package md2word converts SVG to PNG automatically; without it, the image is
+  skipped.
+- **Nested quotes** are rendered through increasing indentation, because Word
+  has no real notion of nested block quotes.
+- **Very wide tables** get squeezed into the text area. Beyond roughly ten
+  columns, consider `--landscape` or a smaller `--font-size`.
+- **Lists** support up to nine levels — that is Word's own limit. Deeper nesting
+  collapses onto level nine.
+- Word only refreshes the **table of contents and page numbers** when the
+  document is opened or on request; that is by design, not a malfunction.
 
 ---
 
-## Entwicklung
+## Development
 
 ```bash
 pip install -e ".[dev]"
@@ -482,49 +487,54 @@ pip install -e ".[dev]"
 pytest
 ```
 
-Die Testsuite umfasst 193 Tests in vier Dateien:
+The suite covers 219 tests across five files:
 
-| Datei | Prüft |
-|:------|:------|
-| `tests/test_blocks.py` | Überschriften, Listen, Zitate, Codeblöcke, Tabellen, Trennlinien |
-| `tests/test_inline.py` | Zeichenformate, Links, Fußnoten, Bilder, rohes HTML |
-| `tests/test_document.py` | Front Matter, Titelseite, Verzeichnis, Kopf-/Fußzeile, Schemata, Referenzdokument |
-| `tests/test_edge_cases.py` | Leere Eingaben, kaputtes Markup, tiefe Verschachtelung, Sonderzeichen |
+| File | Covers |
+|:-----|:-------|
+| `tests/test_blocks.py` | Headings, lists, quotes, code blocks, tables, rules |
+| `tests/test_inline.py` | Character formatting, links, footnotes, images, raw HTML |
+| `tests/test_document.py` | Front matter, title page, TOC, headers/footers, themes, reference documents |
+| `tests/test_edge_cases.py` | Empty input, malformed markup, deep nesting, special characters |
+| `tests/test_i18n.py` | Language fallbacks and the document strings that follow `--lang` |
 
-Jeder Test, der eine ganze Datei erzeugt, lässt sie durch `assert_valid` laufen.
-Diese Prüfung in `tests/conftest.py` geht das erzeugte OPC-Paket durch:
-Wohlgeformtheit aller XML-Teile, vollständige Content-Types, auflösbare
-Beziehungen und `r:id`-Verweise, vorhandene Formatvorlagen, konsistente
-Nummerierungen samt Schema-Reihenfolge, paarige Lesezeichen und Feldfunktionen,
-Fußnoten mit Definition und Anker, auf die tatsächlich ein Lesezeichen zeigt.
+Every test that produces a complete file runs it through `assert_valid`. That
+check, in `tests/conftest.py`, walks the resulting OPC package: well-formedness
+of all XML parts, complete content types, resolvable relationships and `r:id`
+references, existing styles, consistent numbering definitions including schema
+order, paired bookmarks and field codes, footnotes that have a definition, and
+anchors that actually point at a bookmark.
 
-### Aufbau
+### Layout
 
-| Datei | Aufgabe |
-|:------|:--------|
-| `md2word/cli.py` | Kommandozeile, Dateinamen, Stapelverarbeitung |
-| `md2word/config.py` | Alle Einstellungen und die Farbschemata |
-| `md2word/parser.py` | Markdown → HTML (markdown-it-py), Front Matter |
-| `md2word/renderer.py` | HTML-Baum → Word-Dokument |
-| `md2word/converter.py` | Dokumentrahmen: Titelseite, Verzeichnis, Kopf-/Fußzeile |
-| `md2word/styles.py` | Formatvorlagen und Seitenlayout |
-| `md2word/docxutil.py` | OOXML-Handarbeit: Fußnoten, Nummerierung, Felder, Rahmen |
-| `md2word/images.py` | Bildquellen auflösen und einbetten |
-| `md2word/highlight.py` | Syntaxhervorhebung via Pygments |
+| File | Responsibility |
+|:-----|:---------------|
+| `md2word/cli.py` | Command line, file names, batch processing |
+| `md2word/config.py` | All settings and the themes |
+| `md2word/parser.py` | Markdown → HTML (markdown-it-py), front matter |
+| `md2word/renderer.py` | HTML tree → Word document |
+| `md2word/converter.py` | Document frame: title page, TOC, headers and footers |
+| `md2word/styles.py` | Styles and page layout |
+| `md2word/docxutil.py` | Hand-written OOXML: footnotes, numbering, fields, borders |
+| `md2word/images.py` | Resolving and embedding image sources |
+| `md2word/highlight.py` | Syntax highlighting via Pygments |
+| `md2word/i18n.py` | The few strings that go *into* the document, per language |
 
-Der Weg über HTML ist Absicht: Verschachtelte Strukturen – Listen in Listen,
-Zitate mit Codeblöcken, Tabellen mit Auszeichnung – lassen sich aus einem Baum
-wesentlich zuverlässiger übertragen als aus dem flachen Token-Strom des Parsers.
+Routing through HTML is deliberate: nested structures — lists inside lists,
+quotes containing code blocks, tables with inline markup — transfer far more
+reliably from a tree than from the parser's flat token stream.
 
-Ein vollständiges Beispieldokument mit allen unterstützten Elementen liegt unter
+A full sample document exercising every supported element lives at
 [examples/demo.md](examples/demo.md):
 
 ```bash
 md2word examples/demo.md --toc --page-numbers --title-page --force
 ```
 
+For the internals — how the pipeline works, why the OOXML is written by hand,
+and where the traps are — see [SPEC.md](SPEC.md).
+
 ---
 
-## Lizenz
+## License
 
 MIT
