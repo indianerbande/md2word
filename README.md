@@ -365,7 +365,7 @@ pip install ".[build]"
 ```
 
 ```bash
-python build.py
+python make_exe.py
 ```
 
 The script checks the dependencies, runs PyInstaller against `md2word.spec`, and
@@ -377,11 +377,11 @@ successful.
 ### The two build modes
 
 ```bash
-python build.py            # one directory (the default)
+python make_exe.py            # one directory (the default)
 ```
 
 ```bash
-python build.py --onefile  # a single file
+python make_exe.py --onefile  # a single file
 ```
 
 Measured on an Apple Silicon Mac, each figure being one full conversion of the

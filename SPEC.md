@@ -719,7 +719,7 @@ exists — including the one the `..` immediately leaves again. The result is a
 
 The failure only shows up when headers, footers, comments, settings or styles are
 loaded on demand — a plain conversion runs fine. A smoke test without
-`--page-numbers` would not have caught it, which is why `build.py` converts a
+`--page-numbers` would not have caught it, which is why `make_exe.py` converts a
 document with both a table of contents **and** page numbers after every build and
 inspects the result for `word/footnotes.xml` and friends.
 
@@ -747,7 +747,7 @@ default.
 
 The build mode is read from `sys.argv` inside the spec. PyInstaller forwards
 everything after `--` but **strips the separator itself**, so searching for `"--"`
-in `sys.argv` fails. `build.py` additionally sets `MD2WORD_ONEFILE=1` as a second
+in `sys.argv` fails. `make_exe.py` additionally sets `MD2WORD_ONEFILE=1` as a second
 route.
 
 ---
